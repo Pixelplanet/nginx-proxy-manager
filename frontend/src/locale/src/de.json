@@ -927,7 +927,7 @@
 		"defaultMessage": "Wird von nginx bei jeder Anfrage aufgelöst, daher wird sie hier nicht geprüft. Sie braucht einen Wert, bevor die erweiterte Konfiguration dieses Hosts ausgeführt wird, zum Beispiel aus einer map in /data/nginx/custom/http.conf; ein set in der erweiterten Konfiguration kommt zu spät."
 	},
 	"upstream.docker-disabled": {
-		"defaultMessage": "Docker-Erkennung aktivieren: NPM_DOCKER_DISCOVERY=true setzen und NPM Zugriff auf die Docker-API geben (siehe Dokumentation)."
+		"defaultMessage": "Docker-Erkennung ist aus: NPM_DOCKER_DISCOVERY=true setzen (siehe Doku)."
 	},
 	"upstream.free-text": {
 		"defaultMessage": "Es kann auch ein beliebiger Hostname oder eine IP-Adresse eingegeben werden."

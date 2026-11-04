@@ -10,6 +10,7 @@ const MANAGED_FILE_REGEX = /^\/data\/nginx\/(proxy_host|redirection_host|dead_ho
 /**
  * Removes noise from nginx stderr output:
  * - the docker-ism alert about /var/log/nginx/error.log which is always a false positive
+ * - the warning that the "user" directive is ignored, which nginx always prints when it runs as PUID
  * - the trailing "configuration file ... test failed" line
  *
  * @param   {String} output
@@ -19,6 +20,7 @@ const cleanNginxOutput = (output) => {
 	return `${output || ""}`
 		.split("\n")
 		.filter((line) => line.indexOf("/var/log/nginx/error.log") === -1)
+		.filter((line) => !/\[warn\] the "user" directive makes sense only if the master process runs with super-user privileges/.test(line))
 		.filter((line) => !/configuration file .* test failed/.test(line))
 		.filter((line) => line.trim() !== "")
 		.join("\n")

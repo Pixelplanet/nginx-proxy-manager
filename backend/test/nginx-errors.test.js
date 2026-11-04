@@ -175,3 +175,14 @@ describe("mayResolveLater", () => {
 		assert.equal(mayResolveLater(null), false);
 	});
 });
+
+describe("cleanNginxOutput: PUID noise", () => {
+	it("drops the 'user' directive warning nginx prints when not running as root", () => {
+		const out = [
+			'nginx: [warn] the "user" directive makes sense only if the master process runs with super-user privileges, ignored in /etc/nginx/nginx.conf:4',
+			'nginx: [emerg] invalid value "maybe" in /data/nginx/proxy_host/2.conf:39',
+			"nginx: configuration file /etc/nginx/nginx.conf test failed",
+		].join("\n");
+		assert.equal(cleanNginxOutput(out), 'nginx: [emerg] invalid value "maybe" in /data/nginx/proxy_host/2.conf:39');
+	});
+});
