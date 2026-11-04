@@ -1,0 +1,54 @@
+{
+	"type": "object",
+	"description": "Health of one host's upstream targets",
+	"additionalProperties": false,
+	"required": ["checked_at", "ok", "targets"],
+	"properties": {
+		"checked_at": {
+			"type": "string",
+			"format": "date-time"
+		},
+		"ok": {
+			"type": "boolean",
+			"description": "True when every target is reachable"
+		},
+		"targets": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"additionalProperties": false,
+				"required": ["location_index", "host", "port", "ok", "code", "message", "ms"],
+				"properties": {
+					"location_index": {
+						"type": ["integer", "null"],
+						"minimum": 0,
+						"description": "Index into the proxy host's locations, null for the main target"
+					},
+					"path": {
+						"type": "string",
+						"description": "Location path (custom locations only)"
+					},
+					"host": {
+						"type": "string"
+					},
+					"port": {
+						"type": "integer"
+					},
+					"ok": {
+						"type": "boolean"
+					},
+					"code": {
+						"type": "string",
+						"description": "Same codes as POST /upstreams/check"
+					},
+					"message": {
+						"type": "string"
+					},
+					"ms": {
+						"type": ["number", "null"]
+					}
+				}
+			}
+		}
+	}
+}
