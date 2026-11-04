@@ -3,6 +3,7 @@
 import app from "./app.js";
 import internalCertificate from "./internal/certificate.js";
 import internalIpRanges from "./internal/ip_ranges.js";
+import internalUpstream from "./internal/upstream.js";
 import { global as logger } from "./logger.js";
 import { migrateUp } from "./migrate.js";
 import { getCompiledSchema } from "./schema/index.js";
@@ -32,9 +33,11 @@ async function appStart() {
 
 			const server = app.listen(3000, () => {
 				logger.info(`Backend PID ${process.pid} listening on port 3000 ...`);
+				internalUpstream.initHealthMonitor();
 
 				process.on("SIGTERM", () => {
 					logger.info(`PID ${process.pid} received SIGTERM`);
+					internalUpstream.stopHealthMonitor();
 					server.close(() => {
 						logger.info("Stopping.");
 						process.exit(0);
