@@ -2,6 +2,7 @@ import _ from "lodash";
 import errs from "../lib/error.js";
 import { castJsonIfNeed } from "../lib/helpers.js";
 import { findDuplicatePath } from "../lib/nginx-locations.js";
+import { global as logger } from "../logger.js";
 import deadHostModel from "../models/dead_host.js";
 import proxyHostModel from "../models/proxy_host.js";
 import redirectionHostModel from "../models/redirection_host.js";
@@ -132,6 +133,66 @@ const internalHost = {
 		}
 		if (Object.keys(values).length) {
 			await model.query().where("id", before.id).patch(values);
+		}
+	},
+
+	/**
+	 * The save part of a host update: patches the row, configures nginx and, when nginx rejected the change
+	 * and kept the previous config, puts the previous values back. Runs under the nginx lock, so the restore
+	 * can't overwrite a concurrent update of the same host.
+	 *
+	 * The audit entry is written whenever the patch was kept, also when configuring failed for a reason that
+	 * does not roll the change back.
+	 *
+	 * @param   {Object}    opts
+	 * @param   {Object}    opts.model
+	 * @param   {String}    opts.hostType   proxy_host, redirection_host, dead_host or stream
+	 * @param   {Number}    opts.id
+	 * @param   {Object}    opts.patch      the data to patch
+	 * @param   {Function}  opts.fetch      async () => row, loads the updated row with the relations nginx needs
+	 * @param   {Function}  opts.audit      async () => {}, writes the audit entry
+	 * @param   {Boolean}   [opts.skipDisabled]  don't configure nginx when the host is disabled
+	 * @returns {Promise<Object>} the updated row, with the new meta
+	 */
+	updateAndConfigure: async ({ model, hostType, id, patch, fetch, audit, skipDisabled = false }) => {
+		const writeAudit = async () => {
+			try {
+				await audit();
+			} catch (err) {
+				logger.warn(`Could not write the audit log entry for ${hostType} #${id}: ${err.message}`);
+			}
+		};
+
+		let patched = false;
+		try {
+			const row = await internalNginx.withLock(async () => {
+				const before = await model.query().where("id", id).first();
+				await model.query().where("id", id).patch(patch);
+				patched = true;
+				const updated = await fetch();
+				if (skipDisabled && !updated.enabled) {
+					return updated;
+				}
+				try {
+					updated.meta = await internalNginx.configure(model, hostType, updated);
+				} catch (err) {
+					// nginx rejected the change and kept the previous config, so keep the previous data too
+					if (before && internalNginx.isHostLevelError(err)) {
+						await internalHost.restoreRow(model, before, patch);
+						patched = false;
+					}
+					throw err;
+				}
+				return updated;
+			});
+			patched = false;
+			await audit();
+			return row;
+		} catch (err) {
+			if (patched) {
+				await writeAudit();
+			}
+			throw err;
 		}
 	},
 

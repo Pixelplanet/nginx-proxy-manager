@@ -125,7 +125,6 @@ const internalRedirectionHost = {
 	update: (access, data) => {
 		let thisData = internalHost.sanitiseInput(data || {});
 		const createCertificate = thisData.certificate_id === "new";
-		let rowBefore = null;
 
 		if (createCertificate) {
 			delete thisData.certificate_id;
@@ -183,7 +182,6 @@ const internalRedirectionHost = {
 				return row;
 			})
 			.then((row) => {
-				rowBefore = row;
 				// Add domain_names to the data in case it isn't there, so that the audit log renders correctly. The order is important here.
 				thisData = _.assign(
 					{},
@@ -195,34 +193,26 @@ const internalRedirectionHost = {
 
 				thisData = internalHost.cleanSslHstsData(thisData, row);
 
-				return redirectionHostModel.query().where({ id: thisData.id }).patch(thisData);
-			})
-			.then(() => {
-				return internalRedirectionHost.get(access, {
+				return internalHost.updateAndConfigure({
+					model: redirectionHostModel,
+					hostType: "redirection_host",
 					id: thisData.id,
-					expand: ["owner", "certificate"],
+					patch: thisData,
+					fetch: () =>
+						internalRedirectionHost.get(access, {
+							id: thisData.id,
+							expand: ["owner", "certificate"],
+						}),
+					audit: () =>
+						internalAuditLog.add(access, {
+							action: "updated",
+							object_type: "redirection-host",
+							object_id: thisData.id,
+							meta: thisData,
+						}),
 				});
 			})
-			.then(async (row) => {
-				// Configure nginx
-				try {
-					row.meta = await internalNginx.configure(redirectionHostModel, "redirection_host", row);
-				} catch (err) {
-					// nginx rejected the change and kept the previous config, so keep the previous data too
-					if (internalNginx.isHostLevelError(err)) {
-						await internalHost.restoreRow(redirectionHostModel, rowBefore, thisData);
-					}
-					throw err;
-				}
-
-				// Add to audit log
-				await internalAuditLog.add(access, {
-					action: "updated",
-					object_type: "redirection-host",
-					object_id: row.id,
-					meta: thisData,
-				});
-
+			.then((row) => {
 				return _.omit(internalHost.cleanRowCertificateMeta(row), omissions());
 			});
 	},

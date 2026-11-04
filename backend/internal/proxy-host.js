@@ -126,7 +126,6 @@ const internalProxyHost = {
 	update: (access, data) => {
 		let thisData = internalHost.sanitiseInput(data);
 		const createCertificate = thisData.certificate_id === "new";
-		let rowBefore = null;
 
 		if (createCertificate) {
 			delete thisData.certificate_id;
@@ -183,7 +182,6 @@ const internalProxyHost = {
 				return row;
 			})
 			.then((row) => {
-				rowBefore = row;
 				// Add domain_names to the data in case it isn't there, so that the audit log renders correctly. The order is important here.
 				thisData = _.assign(
 					{},
@@ -195,36 +193,28 @@ const internalProxyHost = {
 
 				thisData = internalHost.cleanSslHstsData(thisData, row);
 
-				return proxyHostModel.query().where({ id: thisData.id }).patch(thisData);
-			})
-			.then(() => {
-				return internalProxyHost.get(access, {
+				return internalHost.updateAndConfigure({
+					model: proxyHostModel,
+					hostType: "proxy_host",
 					id: thisData.id,
-					expand: ["owner", "certificate", "access_list.[clients,items]"],
+					patch: thisData,
+					// there's no need to add nginx config if host is disabled
+					skipDisabled: true,
+					fetch: () =>
+						internalProxyHost.get(access, {
+							id: thisData.id,
+							expand: ["owner", "certificate", "access_list.[clients,items]"],
+						}),
+					audit: () =>
+						internalAuditLog.add(access, {
+							action: "updated",
+							object_type: "proxy-host",
+							object_id: thisData.id,
+							meta: thisData,
+						}),
 				});
 			})
-			.then(async (row) => {
-				// Configure nginx, there's no need to add nginx config if host is disabled
-				if (row.enabled) {
-					try {
-						row.meta = await internalNginx.configure(proxyHostModel, "proxy_host", row);
-					} catch (err) {
-						// nginx rejected the change and kept the previous config, so keep the previous data too
-						if (internalNginx.isHostLevelError(err)) {
-							await internalHost.restoreRow(proxyHostModel, rowBefore, thisData);
-						}
-						throw err;
-					}
-				}
-
-				// Add to audit log
-				await internalAuditLog.add(access, {
-					action: "updated",
-					object_type: "proxy-host",
-					object_id: row.id,
-					meta: thisData,
-				});
-
+			.then((row) => {
 				return _.omit(internalHost.cleanRowCertificateMeta(row), omissions());
 			});
 	},

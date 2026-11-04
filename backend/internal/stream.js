@@ -106,7 +106,6 @@ const internalStream = {
 	update: (access, data) => {
 		let thisData = internalHost.sanitiseInput(data);
 		const create_certificate = thisData.certificate_id === "new";
-		let rowBefore = null;
 
 		if (create_certificate) {
 			delete thisData.certificate_id;
@@ -143,7 +142,6 @@ const internalStream = {
 				return row;
 			})
 			.then((row) => {
-				rowBefore = row;
 				// Add domain_names to the data in case it isn't there, so that the audit log renders correctly. The order is important here.
 				thisData = _.assign(
 					{},
@@ -153,30 +151,22 @@ const internalStream = {
 					thisData,
 				);
 
-				return streamModel.query().patchAndFetchById(row.id, thisData);
-			})
-			.then(() => {
-				return internalStream.get(access, { id: thisData.id, expand: ["owner", "certificate"] });
-			})
-			.then(async (row) => {
-				try {
-					row.meta = await internalNginx.configure(streamModel, "stream", row);
-				} catch (err) {
-					// nginx rejected the change and kept the previous config, so keep the previous data too
-					if (internalNginx.isHostLevelError(err)) {
-						await internalHost.restoreRow(streamModel, rowBefore, thisData);
-					}
-					throw err;
-				}
-
-				// Add to audit log
-				await internalAuditLog.add(access, {
-					action: "updated",
-					object_type: "stream",
-					object_id: row.id,
-					meta: thisData,
+				return internalHost.updateAndConfigure({
+					model: streamModel,
+					hostType: "stream",
+					id: row.id,
+					patch: thisData,
+					fetch: () => internalStream.get(access, { id: thisData.id, expand: ["owner", "certificate"] }),
+					audit: () =>
+						internalAuditLog.add(access, {
+							action: "updated",
+							object_type: "stream",
+							object_id: row.id,
+							meta: thisData,
+						}),
 				});
-
+			})
+			.then((row) => {
 				return _.omit(internalHost.cleanRowCertificateMeta(row), omissions());
 			});
 	},

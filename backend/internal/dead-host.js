@@ -162,33 +162,25 @@ const internalDeadHost = {
 
 		thisData = internalHost.cleanSslHstsData(thisData, row);
 
-		// do the row update
-		await deadHostModel.query().where({ id: data.id }).patch(data);
-
-		const thisRow = await internalDeadHost.get(access, {
-			id: thisData.id,
-			expand: ["owner", "certificate"],
-		});
-
-		// Configure nginx, there's no need to add nginx config if host is disabled
-		if (thisRow.enabled) {
-			try {
-				thisRow.meta = await internalNginx.configure(deadHostModel, "dead_host", thisRow);
-			} catch (err) {
-				// nginx rejected the change and kept the previous config, so keep the previous data too
-				if (internalNginx.isHostLevelError(err)) {
-					await internalHost.restoreRow(deadHostModel, row, data);
-				}
-				throw err;
-			}
-		}
-
-		// Add to audit log
-		await internalAuditLog.add(access, {
-			action: "updated",
-			object_type: "dead-host",
-			object_id: row.id,
-			meta: thisData,
+		// do the row update and configure nginx, there's no need to add nginx config if host is disabled
+		const thisRow = await internalHost.updateAndConfigure({
+			model: deadHostModel,
+			hostType: "dead_host",
+			id: data.id,
+			patch: data,
+			skipDisabled: true,
+			fetch: () =>
+				internalDeadHost.get(access, {
+					id: thisData.id,
+					expand: ["owner", "certificate"],
+				}),
+			audit: () =>
+				internalAuditLog.add(access, {
+					action: "updated",
+					object_type: "dead-host",
+					object_id: row.id,
+					meta: thisData,
+				}),
 		});
 
 		return _.omit(internalHost.cleanRowCertificateMeta(thisRow), omissions());
