@@ -167,12 +167,15 @@ export function HostStatusFormatter({ enabled, meta, health, onLogs }: Props) {
 			<button
 				type="button"
 				className="btn btn-link p-0 text-reset text-decoration-none"
-				aria-label={intl.formatMessage({ id: "host-status.details" })}
 				aria-expanded={show}
 				onPointerEnter={hoverOpen}
 				onPointerLeave={hoverHide}
 			>
 				{badge}
+				{/* Announced after the visible state, e.g. "Error, show status details" */}
+				<span className="visually-hidden">
+					, <T id="host-status.details" />
+				</span>
 			</button>
 		</OverlayTrigger>
 	);

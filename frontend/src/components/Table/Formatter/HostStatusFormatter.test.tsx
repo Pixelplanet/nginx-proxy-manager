@@ -42,6 +42,8 @@ describe("HostStatusFormatter", () => {
 		);
 		expect(statusEl(container)).toHaveClass("status-red");
 		expect(container).toHaveTextContent("Error");
+		// screen readers hear the state, not just "show details"
+		expect(screen.getByRole("button", { name: /^Error\W+Show status details$/ })).toBeInTheDocument();
 
 		fireEvent.click(screen.getByRole("button"));
 		const popover = await screen.findByTestId("host-status-popover");
@@ -64,6 +66,7 @@ describe("HostStatusFormatter", () => {
 		const { container } = render(<HostStatusFormatter enabled meta={meta} />);
 		expect(statusEl(container)).toHaveClass("status-yellow");
 		expect(container).toHaveTextContent("Warning");
+		expect(screen.getByRole("button", { name: /^Warning\W+Show status details$/ })).toBeInTheDocument();
 
 		fireEvent.click(screen.getByRole("button"));
 		const popover = await screen.findByTestId("host-status-popover");
