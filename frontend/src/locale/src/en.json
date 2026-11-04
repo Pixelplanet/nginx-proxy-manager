@@ -527,6 +527,9 @@
 	"host-test.ok": {
 		"defaultMessage": "Configuration OK"
 	},
+	"host-test.ok-warnings": {
+		"defaultMessage": "Configuration OK, with warnings"
+	},
 	"host-test.quarantined": {
 		"defaultMessage": "{count, plural, one {Nginx would disable # custom location} other {Nginx would disable # custom locations}}"
 	},

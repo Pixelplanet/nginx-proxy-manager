@@ -527,6 +527,9 @@
 	"host-test.ok": {
 		"defaultMessage": "Seadistus korras"
 	},
+	"host-test.ok-warnings": {
+		"defaultMessage": "Konfiguratsioon on korras, hoiatustega"
+	},
 	"host-test.quarantined": {
 		"defaultMessage": "{count, plural, one {Nginx keelaks # kohandatud asukoha} other {Nginx keelaks # kohandatud asukohta}}"
 	},

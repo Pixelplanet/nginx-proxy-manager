@@ -10,18 +10,24 @@ import { Button } from "./Button";
 import { NginxErrorMessage } from "./NginxFeedback";
 import { LocationStatusBadge, UpstreamCheckBadge } from "./StatusBadges";
 
-export type HostTestState = "ok" | "rejected" | "quarantined" | "error";
+export type HostTestState = "ok" | "warnings" | "rejected" | "quarantined" | "error";
 
 export const getHostTestState = (result: HostTestResult | null, error: unknown): HostTestState | null => {
 	if (error) return "error";
 	if (!result) return null;
 	if (!result.nginxOnline) return "rejected";
 	if (!result.ok) return "quarantined";
+	// nginx accepts it, but something will not work yet: an unresolved location,
+	// an unreachable target or a warning about another host
+	const unresolved = result.nginxLocations.some((l) => l.status === "unresolved");
+	const unreachable = result.upstreams.some((u) => !u.ok && u.code !== "disabled");
+	if (unresolved || unreachable || result.warnings.length) return "warnings";
 	return "ok";
 };
 
 const VARIANT: Record<HostTestState, string> = {
 	ok: "success",
+	warnings: "warning",
 	rejected: "danger",
 	quarantined: "warning",
 	error: "danger",
@@ -89,6 +95,7 @@ export function HostConfigTestResult({ result, error, testedKey, onClose }: Resu
 			<h4 className="alert-title d-flex align-items-center">
 				{state === "ok" ? <IconCircleCheck size={20} className="me-1" /> : null}
 				{state === "ok" ? <T id="host-test.ok" /> : null}
+				{state === "warnings" ? <T id="host-test.ok-warnings" /> : null}
 				{state === "rejected" ? <T id="host-test.rejected" /> : null}
 				{state === "quarantined" ? <T id="host-test.quarantined" data={{ count: quarantined.length }} /> : null}
 			</h4>

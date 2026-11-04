@@ -527,6 +527,9 @@
 	"host-test.ok": {
 		"defaultMessage": "Konfiguration OK"
 	},
+	"host-test.ok-warnings": {
+		"defaultMessage": "Konfiguration OK, mit Warnungen"
+	},
 	"host-test.quarantined": {
 		"defaultMessage": "{count, plural, one {Nginx würde # benutzerdefinierten Pfad deaktivieren} other {Nginx würde # benutzerdefinierte Pfade deaktivieren}}"
 	},

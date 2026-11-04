@@ -34,6 +34,20 @@ describe("getHostTestState", () => {
 		expect(getHostTestState({ ...base, ok: false }, null)).toBe("quarantined");
 		expect(getHostTestState(null, new Error("x"))).toBe("error");
 	});
+
+	it("reports warnings when nginx accepts it but something won't work yet", () => {
+		const unresolved = {
+			...base,
+			nginxLocations: [{ index: 0, path: "/api", status: "unresolved", mode: "dynamic", message: "x" }],
+		} as HostTestResult;
+		expect(getHostTestState(unresolved, null)).toBe("warnings");
+		const unreachable = { ...base, upstreams: [{ ok: false, code: "tcp_refused" }] } as unknown as HostTestResult;
+		expect(getHostTestState(unreachable, null)).toBe("warnings");
+		const variable = { ...base, upstreams: [{ ok: false, code: "disabled" }] } as unknown as HostTestResult;
+		expect(getHostTestState(variable, null)).toBe("ok");
+		const other = { ...base, warnings: [{ code: "other_host_broken", message: "x" }] } as unknown as HostTestResult;
+		expect(getHostTestState(other, null)).toBe("warnings");
+	});
 });
 
 describe("HostConfigTestResult", () => {
@@ -46,7 +60,7 @@ describe("HostConfigTestResult", () => {
 		expect(container.querySelector("[data-testid=host-test-result]")).toBeNull();
 	});
 
-	it("shows an ok result with locations and reachability", () => {
+	it("shows an accepted result with problem locations and targets as warnings", () => {
 		const result: HostTestResult = {
 			...base,
 			nginxLocations: [
@@ -86,9 +100,9 @@ describe("HostConfigTestResult", () => {
 			),
 		);
 		const alert = getByTestId("host-test-result");
-		expect(alert).toHaveAttribute("data-state", "ok");
-		expect(alert).toHaveClass("alert-success");
-		expect(alert).toHaveTextContent("Configuration OK");
+		expect(alert).toHaveAttribute("data-state", "warnings");
+		expect(alert).toHaveClass("alert-warning");
+		expect(alert).toHaveTextContent("Configuration OK, with warnings");
 		expect(getByTestId("host-test-locations")).toHaveTextContent("/api");
 		expect(getByTestId("host-test-locations")).toHaveTextContent("Host later not found");
 		expect(getByTestId("host-test-upstreams")).toHaveTextContent("Reachable (2 ms)");
