@@ -76,7 +76,7 @@ it in `meta.nginx_locations` of the proxy host:
 | --- | --- | --- |
 | `ok` | The location is active. | Proxies to the upstream. |
 | `unresolved` | The upstream name doesn't resolve right now, for example because the container is stopped. | Answers `502` for this location until the name resolves. The rest of the host works. |
-| `quarantined` | nginx rejected the location, or NPM knows it would. The message says why, for example an unknown directive in its advanced configuration, , a forward path on a regular-expression location, or a forward path with spaces, quotes, `;`, `{`, `}`, `#` or `\\` (nginx variables such as `$1` are fine). | Answers `503` for this path. If nginx rejects even that placeholder, for example because the path itself is invalid, the location is left out. |
+| `quarantined` | nginx rejected the location, or NPM knows it would. The message says why, for example an unknown directive in its advanced configuration, a forward path on a regular-expression location, or a forward path with spaces, quotes, `;`, `{`, `}`, `#` or `\` (nginx variables such as `$1` are fine). | Answers `503` for this path. If nginx rejects even that placeholder, for example because the path itself is invalid, the location is left out. |
 | `disabled` | You switched the location off. | The location isn't in the config. Requests fall through to the host's other locations. |
 
 Fix the cause and save the host again to bring a quarantined location back. An unresolved location comes back by
