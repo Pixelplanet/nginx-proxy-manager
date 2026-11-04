@@ -149,7 +149,7 @@ describe("Settings: Nginx configuration", () => {
 		renderPage();
 		await confirm();
 		expect(await screen.findByText("nginx is broken")).toBeInTheDocument();
-		fireEvent.click(screen.getByRole("button", { name: /close/i }));
+		fireEvent.click(screen.getByRole("button", { name: /close alert/i }));
 		await waitFor(() => expect(screen.queryByText("nginx is broken")).toBeNull());
 	});
 });
