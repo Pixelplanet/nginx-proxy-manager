@@ -12,5 +12,9 @@
  {"path":"~ ^/re/","fp":""},
  {"path":"~* \\.php$","fp":""},
  {"path":"/auth-test/","fp":"/w/","adv":"auth_request /auth;"},
- {"path":"/rw/","fp":"/k/","adv":"rewrite ^/rw/old(.*)$ /rw/new$1 break;"}
+ {"path":"/rw/","fp":"/k/","adv":"rewrite ^/rw/old(.*)$ /rw/new$1 break;"},
+ {"path":"/hostpath/","host":"echo/hp","fp":""},
+ {"path":"/cache/","fp":"/c/","cache":true},
+ {"path":"/cacheroot/","fp":"","cache":true},
+ {"path":"/acl/","fp":"/v/","acl":true}
 ]
