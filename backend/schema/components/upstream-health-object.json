@@ -1,0 +1,42 @@
+{
+	"type": "object",
+	"description": "Latest results of the background upstream health monitor (in memory only)",
+	"additionalProperties": false,
+	"required": ["enabled", "interval", "checked_at", "hosts"],
+	"properties": {
+		"enabled": {
+			"type": "boolean"
+		},
+		"interval": {
+			"type": "integer",
+			"minimum": 0,
+			"description": "Seconds between rounds, 0 = disabled"
+		},
+		"checked_at": {
+			"type": ["string", "null"],
+			"format": "date-time",
+			"description": "End of the last completed round"
+		},
+		"hosts": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["proxy_host", "stream"],
+			"properties": {
+				"proxy_host": {
+					"type": "object",
+					"description": "Keyed by proxy host id",
+					"additionalProperties": {
+						"$ref": "./upstream-health-host.json"
+					}
+				},
+				"stream": {
+					"type": "object",
+					"description": "Keyed by stream id",
+					"additionalProperties": {
+						"$ref": "./upstream-health-host.json"
+					}
+				}
+			}
+		}
+	}
+}

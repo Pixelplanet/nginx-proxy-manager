@@ -1,0 +1,102 @@
+{
+	"type": "object",
+	"description": "Suggested upstream (forward) hosts",
+	"additionalProperties": false,
+	"required": ["providers", "items", "generated_at"],
+	"properties": {
+		"providers": {
+			"type": "object",
+			"description": "Status of each discovery provider",
+			"additionalProperties": false,
+			"required": ["docker", "dns", "history"],
+			"properties": {
+				"docker": {
+					"$ref": "./upstream-provider-status.json"
+				},
+				"dns": {
+					"$ref": "./upstream-provider-status.json"
+				},
+				"history": {
+					"$ref": "./upstream-provider-status.json"
+				}
+			}
+		},
+		"items": {
+			"type": "array",
+			"maxItems": 500,
+			"items": {
+				"type": "object",
+				"additionalProperties": false,
+				"required": [
+					"host",
+					"label",
+					"source",
+					"ports",
+					"hint_port",
+					"hint_scheme",
+					"network",
+					"state",
+					"ip",
+					"used_by"
+				],
+				"properties": {
+					"host": {
+						"type": "string",
+						"description": "Host name to use as forward host",
+						"example": "app"
+					},
+					"label": {
+						"type": "string",
+						"description": "Human readable label",
+						"example": "app (container)"
+					},
+					"source": {
+						"type": "string",
+						"enum": ["docker", "dns", "history"]
+					},
+					"ports": {
+						"type": "array",
+						"description": "Known TCP ports (exposed container ports, or ports used before)",
+						"items": {
+							"type": "integer",
+							"minimum": 1,
+							"maximum": 65535
+						}
+					},
+					"hint_port": {
+						"type": ["integer", "null"],
+						"minimum": 1,
+						"maximum": 65535,
+						"description": "Suggested port (npm.port label, or the only known port)"
+					},
+					"hint_scheme": {
+						"type": ["string", "null"],
+						"enum": ["http", "https", null]
+					},
+					"network": {
+						"type": ["string", "null"],
+						"description": "Docker network shared with Nginx Proxy Manager"
+					},
+					"state": {
+						"type": ["string", "null"],
+						"description": "Container state",
+						"example": "running"
+					},
+					"ip": {
+						"type": ["string", "null"],
+						"example": "172.18.0.5"
+					},
+					"used_by": {
+						"type": "integer",
+						"minimum": 0,
+						"description": "Number of existing hosts forwarding to this host"
+					}
+				}
+			}
+		},
+		"generated_at": {
+			"type": "string",
+			"format": "date-time"
+		}
+	}
+}
