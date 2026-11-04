@@ -1,7 +1,14 @@
 import { IconBrandDocker, IconHistory, IconNetwork, IconRefresh } from "@tabler/icons-react";
 import cn from "classnames";
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
-import { components, type GroupBase, type MenuListProps, type OptionProps, type SingleValue } from "react-select";
+import {
+	components,
+	type GroupBase,
+	type InputProps,
+	type MenuListProps,
+	type OptionProps,
+	type SingleValue,
+} from "react-select";
 import CreatableSelect from "react-select/creatable";
 import type { UpstreamCandidate, UpstreamCandidates, UpstreamSource } from "src/api/backend";
 import { useUpstreamCandidates } from "src/hooks";
@@ -80,6 +87,13 @@ const Option = (props: OptionProps<UpstreamOption, false, GroupBase<UpstreamOpti
 		</components.Option>
 	);
 };
+
+// The input text is the only visible value (controlShouldRenderValue is off), so it
+// must never be hidden. react-select hides the input after selecting an option until
+// the next keystroke or focus, which would make the field look empty.
+const Input = (props: InputProps<UpstreamOption, false, GroupBase<UpstreamOption>>) => (
+	<components.Input {...props} isHidden={false} />
+);
 
 interface MenuFooterInfo {
 	dockerDisabled: boolean;
@@ -206,7 +220,7 @@ export function UpstreamField({
 					isClearable
 					isLoading={!candidates && query.isFetching}
 					placeholder={placeholder}
-					components={{ Option, MenuList }}
+					components={{ Option, MenuList, Input }}
 					onMenuOpen={() => setWanted(true)}
 					onFocus={() => setWanted(true)}
 					onBlur={onBlur}

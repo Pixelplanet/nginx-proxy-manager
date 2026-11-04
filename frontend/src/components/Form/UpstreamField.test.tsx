@@ -122,6 +122,30 @@ describe("UpstreamField", () => {
 		);
 	});
 
+	it("keeps the picked host visible after selecting and after leaving the field", () => {
+		render(<Harness candidates={data()} />);
+		const input = openMenu();
+		fireEvent.click(screen.getByText("app"));
+		expect(input.value).toBe("app");
+		expect(input.style.opacity).not.toBe("0");
+		fireEvent.blur(input);
+		expect(input.value).toBe("app");
+		expect(input.style.opacity).not.toBe("0");
+	});
+
+	it("keeps a created value visible after pressing Enter", () => {
+		render(<Harness candidates={data()} />);
+		const input = openMenu();
+		fireEvent.change(input, { target: { value: "my-service" } });
+		fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+		expect(screen.getByTestId("value")).toHaveTextContent("my-service");
+		expect(input.value).toBe("my-service");
+		expect(input.style.opacity).not.toBe("0");
+		fireEvent.blur(input);
+		expect(input.value).toBe("my-service");
+		expect(input.style.opacity).not.toBe("0");
+	});
+
 	it("keeps free text verbatim, including host/path and IPs", () => {
 		const onChange = vi.fn();
 		const onSelect = vi.fn();
