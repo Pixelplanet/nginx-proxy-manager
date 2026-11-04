@@ -1,0 +1,130 @@
+# Fork-only workflow: builds the Nginx Proxy Manager image from this fork and publishes it to
+# GitHub Container Registry (ghcr.io/<owner>/nginx-proxy-manager). Not intended for upstream.
+#
+#   docker pull ghcr.io/pixelplanet/nginx-proxy-manager:ux-resilient-locations
+#
+# Tags: branch name (slashes -> dashes), sha-<short>, and "latest" for the default branch / version tags.
+name: Fork image
+
+on:
+  push:
+    branches:
+      - "ux/**"
+      - "feat/**"
+      - "pr/**"
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: "Target platforms (comma separated)"
+        required: false
+        default: "linux/amd64"
+
+concurrency:
+  group: fork-image-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/nginx-proxy-manager
+
+jobs:
+  test:
+    name: Lint and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Backend lint, schema and tests
+        working-directory: backend
+        run: |
+          yarn install --frozen-lockfile
+          yarn lint
+          yarn validate-schema
+          yarn test
+
+      - name: Frontend lint, tests and build
+        working-directory: frontend
+        env:
+          CI: "true"
+          NODE_OPTIONS: --openssl-legacy-provider
+        run: |
+          yarn install --frozen-lockfile
+          yarn lint
+          yarn locale-compile
+          yarn vitest run --no-color
+          yarn build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 3
+
+  image:
+    name: Build and push image
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: ${{ github.event.inputs.platforms || 'linux/amd64' }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            BUILD_VERSION=${{ github.ref_name }}
+            BUILD_COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          {
+            echo "### Image pushed"
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
