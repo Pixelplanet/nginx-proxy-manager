@@ -48,13 +48,25 @@ while [ "$NGINX_VALIDATE_COUNT" -lt "$NGINX_VALIDATE_MAX" ]; do
 	NGINX_VALIDATE_ERROR="$(echo "$NGINX_VALIDATE_OUTPUT" | grep -v '/var/log/nginx/error.log' | grep -E '\[(emerg|alert|crit)\]' | head -n 1 || true)"
 	NGINX_VALIDATE_FILE="$(echo "$NGINX_VALIDATE_ERROR" | grep -oE "in ${NGINX_VALIDATE_HOSTS}:[0-9]+" | head -n 1 | sed -E 's/^in //; s/:[0-9]+$//' || true)"
 
-	# Some errors, eg. a missing certificate file, don't name the config file: blame the
-	# first host config that loads a file named in the error with one of its own ssl_*
-	# directives. Any other mention (eg. its access_log) is not enough.
+	# Some errors, eg. a missing certificate file or a log file nginx can't open, don't name
+	# the config file. The candidates are the host configs that mention a path named in the
+	# error (any directive, comments don't count). A mention alone is not enough: each
+	# candidate is moved aside in turn and only the one whose removal makes the error go away
+	# (the test passes, or the remaining error no longer names the path) is blamed. The others
+	# are put back.
 	if [ -z "$NGINX_VALIDATE_FILE" ] && ! echo "$NGINX_VALIDATE_ERROR" | grep -qE ' in /[^ ]+:[0-9]+$'; then
 		for NGINX_VALIDATE_PATH in $(echo "$NGINX_VALIDATE_ERROR" | grep -oE '"/[^" ]+"' | tr -d '"' || true); do
 			for NGINX_VALIDATE_CANDIDATE in $(grep -lF "$NGINX_VALIDATE_PATH" /data/nginx/proxy_host/*.conf /data/nginx/redirection_host/*.conf /data/nginx/dead_host/*.conf /data/nginx/stream/*.conf 2>/dev/null || true); do
-				if awk -v p="$NGINX_VALIDATE_PATH" '{ sub(/#.*/, "") } $1 ~ /^ssl_[a-z_]+$/ && index($0, p) { found = 1 } END { exit !found }' "$NGINX_VALIDATE_CANDIDATE"; then
+				if ! awk -v p="$NGINX_VALIDATE_PATH" '{ sub(/#.*/, "") } index($0, p) { found = 1 } END { exit !found }' "$NGINX_VALIDATE_CANDIDATE"; then
+					continue
+				fi
+				if ! mv -f "$NGINX_VALIDATE_CANDIDATE" "${NGINX_VALIDATE_CANDIDATE}.npm-aside"; then
+					continue
+				fi
+				NGINX_VALIDATE_RETRY="$(s6-setuidgid "$PUID:$PGID" nginx -t -g 'error_log /dev/null;' 2>&1 || true)"
+				mv -f "${NGINX_VALIDATE_CANDIDATE}.npm-aside" "$NGINX_VALIDATE_CANDIDATE" || true
+				if echo "$NGINX_VALIDATE_RETRY" | grep -q 'test is successful' \
+					|| ! echo "$NGINX_VALIDATE_RETRY" | grep -v '/var/log/nginx/error.log' | grep -E '\[(emerg|alert|crit)\]' | head -n 1 | grep -qF "$NGINX_VALIDATE_PATH"; then
 					NGINX_VALIDATE_FILE="$NGINX_VALIDATE_CANDIDATE"
 					break 2
 				fi
@@ -79,4 +91,4 @@ while [ "$NGINX_VALIDATE_COUNT" -lt "$NGINX_VALIDATE_MAX" ]; do
 	NGINX_VALIDATE_COUNT=$((NGINX_VALIDATE_COUNT + 1))
 done
 
-unset NGINX_VALIDATE_MAX NGINX_VALIDATE_COUNT NGINX_VALIDATE_HOSTS NGINX_VALIDATE_OUTPUT NGINX_VALIDATE_ERROR NGINX_VALIDATE_FILE NGINX_VALIDATE_PATH NGINX_VALIDATE_CANDIDATE
+unset NGINX_VALIDATE_MAX NGINX_VALIDATE_COUNT NGINX_VALIDATE_HOSTS NGINX_VALIDATE_OUTPUT NGINX_VALIDATE_ERROR NGINX_VALIDATE_FILE NGINX_VALIDATE_PATH NGINX_VALIDATE_CANDIDATE NGINX_VALIDATE_RETRY
