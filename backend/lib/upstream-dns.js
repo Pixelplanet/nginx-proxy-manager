@@ -15,8 +15,10 @@ import net from "node:net";
 
 const RESOLVERS_FILE = "/etc/nginx/conf.d/include/resolvers.conf";
 const HOSTS_FILE = "/etc/hosts";
-const RESOLVER_TIMEOUT_MS = 1000;
-const LOOKUP_TIMEOUT_MS = 1000;
+// Together at most ~2s per host name: the resolver query, a short guard for its settle, then the system lookup
+const RESOLVER_TIMEOUT_MS = 800;
+const RESOLVER_GUARD_MS = 200;
+const LOOKUP_TIMEOUT_MS = 800;
 
 const toBool = (v, fallback) => {
 	if (typeof v === "undefined" || v === null || `${v}`.trim() === "") {
@@ -184,7 +186,7 @@ const createModeResolver = (options = {}) => {
 
 		const viaResolver = await withTimeout(
 			resolveViaResolver(host, resolverConfig).then((ok) => ({ ok })),
-			RESOLVER_TIMEOUT_MS + 500,
+			RESOLVER_TIMEOUT_MS + RESOLVER_GUARD_MS,
 		);
 		if (viaResolver.ok) {
 			return { mode: "dynamic", status: "ok", reason: "resolver" };
