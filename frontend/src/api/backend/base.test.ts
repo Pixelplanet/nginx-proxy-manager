@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ApiError, buildApiError, isApiError, processResponse } from "./base";
+import { type ApiError, buildApiError, isApiError, processResponse } from "./base";
 
 const json = (body: unknown, status: number) =>
 	new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
