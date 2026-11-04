@@ -3,7 +3,7 @@
 	"summary": "Test the configuration of a 404 Host without saving it",
 	"description": "Validates the payload like a save would (schema, duplicate custom location paths, forbidden file directives, domain names in use: 400) and lets nginx check the generated configuration without activating it: nothing is written to the database, nginx is not reloaded and other hosts are not changed. A configuration nginx rejects is returned as ok:false with the error a save would fail with. Also checks that the upstream targets are reachable. Needs the create permission, or the update permission when id is given. Rate limited to 30 tests per minute per user.",
 	"tags": [
-		"dead-hosts"
+		"404-hosts"
 	],
 	"security": [
 		{

@@ -43,7 +43,20 @@
 			"example": null
 		},
 		"nginx_locations": {
-			"$ref": "./proxy-host-object.json#/properties/meta/properties/nginx_locations"
+			"type": "array",
+			"description": "One entry per custom location (proxy hosts), same shape as meta.nginx_locations of a saved host. Also filled in when nginx rejects the host.",
+			"example": [
+				{
+					"index": 0,
+					"path": "/api",
+					"status": "ok",
+					"mode": "dynamic",
+					"message": null
+				}
+			],
+			"items": {
+				"$ref": "./proxy-host-object.json#/properties/meta/properties/nginx_locations/items"
+			}
 		},
 		"upstreams": {
 			"type": "array",
