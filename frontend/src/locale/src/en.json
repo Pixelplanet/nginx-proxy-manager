@@ -542,6 +542,9 @@
 	"location.error.host-whitespace": {
 		"defaultMessage": "The host must not contain spaces"
 	},
+	"location.error.path-invalid": {
+		"defaultMessage": "Invalid characters in forward path (spaces, quotes, ;, braces, # or \\). nginx variables such as $uri are allowed."
+	},
 	"location.errors-summary": {
 		"defaultMessage": "Some custom locations have errors"
 	},

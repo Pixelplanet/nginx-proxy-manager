@@ -83,6 +83,28 @@ describe("validateLocations", () => {
 		}
 	});
 
+	it("rejects nginx syntax characters and whitespace in the path part", () => {
+		for (const forwardHost of [
+			"app/x;y",
+			"app/a}",
+			"app/{a",
+			"app/#x",
+			'app/"q',
+			"app/'q",
+			"app/`q",
+			"app/a\\b",
+			"app/my path",
+			"app/a\tb",
+			"$backend/a;b",
+		]) {
+			expect(validateLocations([loc({ forwardHost })])[0]?.forwardHost).toMatch(/invalid characters in forward path/i);
+		}
+		// nginx variables in the path are fine
+		for (const forwardHost of ["app/$uri", "$backend/api/$arg_x", "app/a-b_c.d/~e"]) {
+			expect(validateLocations([loc({ forwardHost })])[0]).toBeUndefined();
+		}
+	});
+
 	it("allows a forward host that is a single nginx variable", () => {
 		expect(validateLocations([loc({ forwardHost: "$backend" })])[0]).toBeUndefined();
 		expect(validateLocations([loc({ forwardHost: " $up_2 " })])[0]).toBeUndefined();

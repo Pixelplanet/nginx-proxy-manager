@@ -542,6 +542,9 @@
 	"location.error.host-whitespace": {
 		"defaultMessage": "Host ei tohi sisaldada tühikuid"
 	},
+	"location.error.path-invalid": {
+		"defaultMessage": "Edastusteel on lubamatud märgid (tühikud, jutumärgid, ;, sulud, # või \\). nginxi muutujad, näiteks $uri, on lubatud."
+	},
 	"location.errors-summary": {
 		"defaultMessage": "Mõnes kohandatud asukohas on vigu"
 	},
