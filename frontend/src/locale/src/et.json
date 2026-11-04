@@ -923,6 +923,9 @@
 	"upstream.check.variable-tip": {
 		"defaultMessage": "Määratakse täpsemas seadistuses ja nginx lahendab selle iga päringu ajal, seega siin seda ei kontrollita."
 	},
+	"upstream.check.variable-tip-main": {
+		"defaultMessage": "nginx lahendab selle iga päringu ajal, seega siin seda ei kontrollita. Sellel peab olema väärtus enne selle hosti täpsema seadistuse käivitumist, näiteks map-ist failis /data/nginx/custom/http.conf; set täpsemas seadistuses on liiga hilja."
+	},
 	"upstream.docker-disabled": {
 		"defaultMessage": "Dockeri tuvastuse lubamiseks määra NPM_DOCKER_DISCOVERY=true ja anna NPM-ile ligipääs Dockeri API-le (vaata dokumentatsiooni)."
 	},

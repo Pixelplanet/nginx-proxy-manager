@@ -923,6 +923,9 @@
 	"upstream.check.variable-tip": {
 		"defaultMessage": "Set in the advanced configuration and resolved by nginx for each request, so it isn't checked here."
 	},
+	"upstream.check.variable-tip-main": {
+		"defaultMessage": "Resolved by nginx for each request, so it isn't checked here. It needs a value before this host's advanced configuration runs, for example from a map in /data/nginx/custom/http.conf; a set in the advanced configuration comes too late."
+	},
 	"upstream.docker-disabled": {
 		"defaultMessage": "Enable Docker discovery: set NPM_DOCKER_DISCOVERY=true and give NPM access to the Docker API (see the documentation)."
 	},

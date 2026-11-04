@@ -11,6 +11,7 @@ import {
 	Button,
 	cleanLocations,
 	DomainNamesField,
+	ForwardHostCheckHint,
 	HasPermission,
 	Loading,
 	LocationsFields,
@@ -19,24 +20,21 @@ import {
 	SaveWarning,
 	SSLCertificateField,
 	SSLOptionsFields,
-	UpstreamCheckHint,
-	VariableHostHint,
 	UpstreamField,
 	usePrefillGuard,
 } from "src/components";
-import { useProxyHost, useSetProxyHost, useUpstreamCheck, useUser } from "src/hooks";
+import { useProxyHost, useSetProxyHost, useUser } from "src/hooks";
 import { intl, T } from "src/locale";
 import {
 	formatApiError,
 	getErrorLocationIndex,
 	getNginxErrorDetails,
 	getProblemLocations,
-	isVariableHost,
 	hasSaveWarnings,
 	stripServerMeta,
 } from "src/modules/HostStatus";
 import { MANAGE, PROXY_HOSTS } from "src/modules/Permissions";
-import { validateNumber, validateString } from "src/modules/Validations";
+import { validateForwardHost, validateNumber } from "src/modules/Validations";
 import { showObjectSuccess } from "src/notifications";
 
 type TabId = "details" | "locations" | "ssl" | "advanced";
@@ -61,20 +59,6 @@ function TabErrorSwitcher({ onTab }: { onTab: (tab: TabId) => void }) {
 		wasSubmitting.current = isSubmitting;
 	}, [isSubmitting, errors, onTab]);
 	return null;
-}
-
-// Live reachability of the Details tab's forward host
-function ForwardCheckHint() {
-	const { values } = useFormikContext<any>();
-	const { result, isChecking } = useUpstreamCheck({
-		host: values.forwardHost,
-		port: values.forwardPort,
-		scheme: values.forwardScheme,
-	});
-	if (isVariableHost(values.forwardHost)) {
-		return <VariableHostHint id="forwardHost-check" />;
-	}
-	return <UpstreamCheckHint id="forwardHost-check" result={result} isChecking={isChecking} />;
 }
 
 const showProxyHostModal = (id: number | "new") => {
@@ -282,7 +266,7 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 														</Field>
 													</div>
 													<div className="col-md-6">
-														<Field name="forwardHost" validate={validateString(1, 255)}>
+														<Field name="forwardHost" validate={validateForwardHost}>
 															{({ field, form }: any) => (
 																<div className="mb-3">
 																	<label className="form-label" htmlFor="forwardHost">
@@ -340,7 +324,7 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 																				: null}
 																		</div>
 																	) : null}
-																	<ForwardCheckHint />
+																	<ForwardHostCheckHint />
 																</div>
 															)}
 														</Field>

@@ -1,6 +1,6 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { UpstreamCheckHint } from "./StatusBadges";
+import { UpstreamCheckHint, VariableHostHint } from "./StatusBadges";
 
 vi.mock("src/context", () => ({ useLocaleState: () => ({ locale: "en" }) }));
 
@@ -27,5 +27,16 @@ describe("UpstreamCheckHint", () => {
 		expect(container.querySelector("#h")).toHaveAttribute("data-check", "checking");
 		rerender(<UpstreamCheckHint id="h" result={null} />);
 		expect(container.querySelector("#h")).toBeNull();
+	});
+});
+
+describe("VariableHostHint", () => {
+	afterEach(() => cleanup());
+
+	it("uses the location tip by default and another tip when given", () => {
+		const { container, rerender } = render(<VariableHostHint id="v" />);
+		expect(container.querySelector("#v")).toHaveTextContent("Set in the advanced configuration");
+		rerender(<VariableHostHint id="v" tipId="upstream.check.variable-tip-main" />);
+		expect(container.querySelector("#v")).toHaveTextContent("a set in the advanced configuration comes too late");
 	});
 });
