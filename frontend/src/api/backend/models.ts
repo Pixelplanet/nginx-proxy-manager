@@ -373,3 +373,35 @@ export interface UpstreamHealth {
 		stream?: Record<string, UpstreamHostHealth>;
 	};
 }
+
+// ---------------------------------------------------------------------------
+// "Test config": POST /api/nginx/<host type>/test checks a host's settings
+// without saving them.
+// ---------------------------------------------------------------------------
+
+export type HostTestEndpoint = "proxy-hosts" | "redirection-hosts" | "dead-hosts" | "streams";
+
+export interface HostTestUpstream extends UpstreamCheckResult {
+	// null for the host's main forward target
+	locationIndex: number | null;
+	path: string | null;
+}
+
+export interface HostTestWarning {
+	code: "certificate_pending" | "other_host_broken" | string;
+	message: string;
+	hostType?: string | null;
+	hostId?: number | null;
+}
+
+export interface HostTestResult {
+	// nginx accepts the configuration as entered: online, no quarantined location
+	ok: boolean;
+	// false when nginx rejects the host itself; a save would fail with nginxErr
+	nginxOnline: boolean;
+	nginxErr: string | null;
+	nginxDetails: NginxConfigErrorDetails | null;
+	nginxLocations: NginxLocationStatus[];
+	upstreams: HostTestUpstream[];
+	warnings: HostTestWarning[];
+}
