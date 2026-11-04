@@ -75,17 +75,19 @@ describe('Upstreams endpoints', () => {
 			expect(data.providers).to.have.property('docker');
 			expect(data.providers).to.have.property('dns');
 			expect(data.providers).to.have.property('history');
-			// Docker discovery is opt-in and not enabled in CI
-			expect(data.providers.docker.status).to.equal('disabled');
-			expect(data.providers.docker.message).to.be.a('string');
+			// Docker discovery is opt-in: disabled in the default CI stack, ok or unavailable where it is turned on
+			expect(['ok', 'disabled', 'unavailable']).to.include(data.providers.docker.status);
+			if (data.providers.docker.status !== 'ok') {
+				expect(data.providers.docker.message).to.be.a('string');
+			}
 			expect(data.providers.history.status).to.equal('ok');
 			expect(['ok', 'unavailable', 'disabled']).to.include(data.providers.dns.status);
 			expect(data).to.have.property('generated_at');
 
 			const examplesite = data.items.find((item) => item.host === 'examplesite');
 			expect(examplesite, 'examplesite candidate').to.not.be.undefined;
-			// Found on the network or from history; either way the port used before is known
-			expect(['dns', 'history']).to.include(examplesite.source);
+			// Found through Docker, on the network or from history; either way the port used before is known
+			expect(['docker', 'dns', 'history']).to.include(examplesite.source);
 			expect(examplesite.ports).to.include(80);
 			expect(examplesite.used_by).to.be.greaterThan(0);
 		});
