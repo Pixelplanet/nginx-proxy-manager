@@ -251,7 +251,7 @@ requests and sets them when it writes the host's config:
 
 ## Startup
 
-Two steps keep one broken host from stopping nginx, every site, and the admin UI, when the container starts:
+Three steps keep one broken host from stopping nginx, every site, and the admin UI, when the container starts:
 
 1. Before nginx starts, the container checks the configuration with `nginx -t`, as the user nginx runs as
    (`PUID`/`PGID`). It moves the host config file named in the error (warnings don't count) to `<id>.conf.err` and
