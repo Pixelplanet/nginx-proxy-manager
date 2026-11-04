@@ -85,6 +85,15 @@ describe("validateLocations", () => {
 		}
 	});
 
+	it("checks only the host part of host/path, like the backend", () => {
+		// the backend splits at the first "/" and validates the host part only
+		expect(validateLocations([loc({ forwardHost: "$backend/api" })])[0]).toBeUndefined();
+		expect(validateLocations([loc({ forwardHost: " $up_2/a/b/ " })])[0]).toBeUndefined();
+		expect(validateLocations([loc({ forwardHost: "$back end" })])[0]?.forwardHost).toBeTruthy();
+		expect(validateLocations([loc({ forwardHost: "$back;end/api" })])[0]?.forwardHost).toMatch(/not allowed/);
+		expect(validateLocations([loc({ forwardHost: "app$x/api" })])[0]?.forwardHost).toMatch(/not allowed/);
+	});
+
 	it("treats a prefix path and the same path with ^~ as duplicates", () => {
 		const errors = validateLocations([loc({ path: "/x" }), loc({ path: "^~ /x" }), loc({ path: "^~/y" })]);
 		expect(errors[0]?.path).toMatch(/already uses \^~ \/x/);
@@ -278,15 +287,17 @@ describe("LocationsFields", () => {
 		expect(screen.getByTestId("location-card-0")).toHaveTextContent("Connection refused");
 	});
 
-	it("doesn't check a forward host that is an nginx variable and says so", () => {
-		checkState.result = { host: "$backend", port: 80, ok: false, code: "invalid_host", message: "bad" };
-		renderFields([loc({ path: "/a", forwardHost: "$backend" })]);
-		fireEvent.click(screen.getByText("/a"));
-		expect(checkState.calls.every((c) => !c.enabled)).toBe(true);
-		const card = screen.getByTestId("location-card-0");
-		expect(card.querySelector("[data-check]")).toHaveAttribute("data-check", "variable");
-		expect(card).toHaveTextContent("nginx variable");
-		expect(card).not.toHaveTextContent("Invalid host name");
-		expect(card.querySelector(".invalid-feedback")).toBeNull();
-	});
+	for (const forwardHost of ["$backend", "$backend/api"]) {
+		it(`doesn't check a forward host that is an nginx variable and says so (${forwardHost})`, () => {
+			checkState.result = { host: "$backend", port: 80, ok: false, code: "invalid_host", message: "bad" };
+			renderFields([loc({ path: "/a", forwardHost })]);
+			fireEvent.click(screen.getByText("/a"));
+			expect(checkState.calls.every((c) => !c.enabled)).toBe(true);
+			const card = screen.getByTestId("location-card-0");
+			expect(card.querySelector("[data-check]")).toHaveAttribute("data-check", "variable");
+			expect(card).toHaveTextContent("nginx variable");
+			expect(card).not.toHaveTextContent("Invalid host name");
+			expect(card.querySelector(".invalid-feedback")).toBeNull();
+		});
+	}
 });

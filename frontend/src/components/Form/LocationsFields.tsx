@@ -15,7 +15,7 @@ import { useEffect, useRef, useState } from "react";
 import type { NginxLocationStatus, ProxyLocation } from "src/api/backend";
 import { useUpstreamCheck } from "src/hooks";
 import { intl, T } from "src/locale";
-import { isVariableHost, locationDuplicateKey, normaliseLocationPath } from "src/modules/HostStatus";
+import { isVariableHost, locationDuplicateKey, locationHostPart, normaliseLocationPath } from "src/modules/HostStatus";
 import { LocationStatusBadge, UpstreamCheckBadge, VariableHostBadge } from "../StatusBadges";
 import { AccessField } from "./AccessField";
 import styles from "./LocationsFields.module.css";
@@ -44,6 +44,7 @@ export const cleanLocations = (items?: ProxyLocation[]) => (items || []).filter(
 
 // Characters that would break out of the generated nginx directive, the same
 // set the backend rejects. A host that is a single nginx variable is allowed.
+// Like the backend, only the host part of `host/path` is checked.
 const INVALID_HOST_CHARS = /[;{}'"`\\$#]/;
 
 export const validateLocations = (items: ProxyLocation[] = []): (LocationErrors | undefined)[] => {
@@ -69,11 +70,12 @@ export const validateLocations = (items: ProxyLocation[] = []): (LocationErrors 
 		}
 
 		const host = `${item.forwardHost ?? ""}`;
+		const hostPart = locationHostPart(host);
 		if (!host.trim()) {
 			errors.forwardHost = intl.formatMessage({ id: "error.required" });
 		} else if (/\s/.test(host.trim())) {
 			errors.forwardHost = intl.formatMessage({ id: "location.error.host-whitespace" });
-		} else if (!isVariableHost(host) && INVALID_HOST_CHARS.test(host)) {
+		} else if (!isVariableHost(hostPart) && INVALID_HOST_CHARS.test(hostPart)) {
 			errors.forwardHost = intl.formatMessage({ id: "location.error.host-invalid" });
 		}
 
@@ -395,7 +397,7 @@ function LocationCard({
 	const hostError = errorFor("forwardHost");
 	const check = useUpstreamCheck(
 		{ host: item.forwardHost, port: item.forwardPort, scheme: item.forwardScheme },
-		isEnabled && wasOpened && !hostError && !isVariableHost(item.forwardHost),
+		isEnabled && wasOpened && !hostError && !isVariableHost(locationHostPart(item.forwardHost)),
 	);
 
 	const pathError = errorFor("path");
@@ -443,7 +445,7 @@ function LocationCard({
 							message={status.message}
 						/>
 					) : null}
-					{isEnabled && isVariableHost(item.forwardHost) ? (
+					{isEnabled && isVariableHost(locationHostPart(item.forwardHost)) ? (
 						<VariableHostBadge id={`location-check-${row.id}`} />
 					) : isEnabled ? (
 						<UpstreamCheckBadge

@@ -147,4 +147,11 @@ export const locationDuplicateKey = (path: string): string | null => {
 const VARIABLE_HOST = /^\$[A-Za-z_][A-Za-z0-9_]*$/;
 export const isVariableHost = (host?: string | null) => VARIABLE_HOST.test(`${host ?? ""}`.trim());
 
+/**
+ * The host part of a location's forward host. The backend splits `host/path`
+ * at the first `/` (the rest becomes the forward path) and validates only the
+ * host part, so `$backend/api` is a variable host with a path.
+ */
+export const locationHostPart = (host?: string | null) => `${host ?? ""}`.trim().split("/")[0];
+
 export const isTranslatedCheckCode = (code?: string) => !!code && hasMessage(`upstream.check.${code}`);
