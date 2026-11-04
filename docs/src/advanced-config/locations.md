@@ -179,6 +179,11 @@ These are rejected with `400` (a validation error naming the directive):
   (`/data/nginx/*/1.conf`, `/data/nginx/proxy_hos[t]/1.conf`).
 - For both: paths through `/proc/` or `/dev/fd/` (for example `/proc/self/root/...`), and in `access_log` a path
   whose fixed part before a variable could still lead to one of the files above (`/data/nginx/$name`).
+- `access_log` paths that end with a variable when the fixed part is in `/data/nginx/` or `/etc/nginx/` or ends
+  with `/` (`/data/nginx/custom/$http_x`, `/data/logs/$http_x`). Variables are filled in from the request and
+  nginx doesn't strip `/` or `..` from them, so any client could pick the file: a header such as
+  `X: /../proxy_host/1.conf` would append log lines to another host's config. Give the path a fixed ending
+  instead, for example `/data/logs/$host.log`.
 
 Allowed are, for example: logs in `/data/logs/` or `/data/nginx/custom/*.log`, relative log paths such as
 `logs/custom.log` (nginx resolves them in `/etc/nginx/nginx/`), `off`, `stderr`, `syslog:`, `/dev/stdout`, a log
@@ -186,7 +191,8 @@ path that starts with a variable, `root`, `alias` and `include` of your own snip
 `/snippets/*.conf`, `conf.d/include/*.conf`).
 
 The directives are read the way nginx reads them: a quote or `#` in the middle of a word (`a"b`, `/#/x`) does not
-start a string or a comment. Hosts saved earlier keep working; the check runs when a host is created or saved.
+start a string or a comment. The exception are `*_by_lua_block` bodies, which ngx_lua reads as Lua: a quote in a
+Lua comment there can hide the directives after the block from this check. Hosts saved earlier keep working; the check runs when a host is created or saved.
 
 ## Status in the API
 
