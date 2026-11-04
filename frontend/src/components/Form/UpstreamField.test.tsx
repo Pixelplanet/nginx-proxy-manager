@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import type { UpstreamCandidate, UpstreamCandidates } from "src/api/backend";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { candidatePrefill, groupCandidates, UpstreamField } from "./UpstreamField";
+import { allowedPrefill, candidatePrefill, groupCandidates, UpstreamField } from "./UpstreamField";
 
 vi.mock("src/hooks", () => ({
 	useUpstreamCandidates: () => ({ data: undefined, isFetching: false, refresh: vi.fn(), isRefreshing: false }),
@@ -51,12 +51,14 @@ function Harness({
 	candidates,
 	onChange,
 	onSelectCandidate,
+	initial = "",
 }: {
 	candidates: UpstreamCandidates;
 	onChange?: (v: string) => void;
 	onSelectCandidate?: (...args: any[]) => void;
+	initial?: string;
 }) {
-	const [value, setValue] = useState("");
+	const [value, setValue] = useState(initial);
 	return (
 		<>
 			<UpstreamField
@@ -170,5 +172,178 @@ describe("UpstreamField", () => {
 		render(<Harness candidates={data("ok")} />);
 		openMenu();
 		expect(screen.queryByTestId("docker-disabled-hint")).toBeNull();
+	});
+});
+
+// Candidates whose host starts with what a user would type for something else
+const prefixData: UpstreamCandidates = {
+	providers: {},
+	items: [
+		candidate({ host: "10.0.0.15", label: "10.0.0.15", source: "history", ports: [3000] }),
+		candidate({ host: "app-db", label: "app-db", source: "docker", ports: [5432] }),
+		candidate({ host: "web", label: "web", source: "docker", ports: [80] }),
+	],
+	generatedAt: "2026-11-04T10:00:00Z",
+};
+
+const hostInput = () => document.getElementById("host") as HTMLInputElement;
+const typeInto = (text: string) => {
+	const input = hostInput();
+	fireEvent.focus(input);
+	fireEvent.change(input, { target: { value: text } });
+	return input;
+};
+const clickControl = () => {
+	fireEvent.mouseDown(document.querySelector(".react-select__control") as HTMLElement, { button: 0 });
+	fireEvent.focus(hostInput());
+};
+const focusedOption = () => document.querySelector(".react-select__option--is-focused");
+const optionTexts = () =>
+	Array.from(document.querySelectorAll(".react-select__option strong")).map((e) => e.textContent);
+
+describe("UpstreamField keyboard", () => {
+	afterEach(() => cleanup());
+
+	for (const [typed, key] of [
+		["10.0.0.1", "Tab"],
+		["10.0.0.1", "Enter"],
+		["app", "Tab"],
+		["app", "Enter"],
+	]) {
+		it(`typing "${typed}" and pressing ${key} keeps the typed text`, () => {
+			const onSelect = vi.fn();
+			render(<Harness candidates={prefixData} onSelectCandidate={onSelect} />);
+			const input = typeInto(typed);
+			expect(document.querySelector(".react-select__menu")).not.toBeNull();
+			fireEvent.keyDown(input, { key, code: key });
+			expect(screen.getByTestId("value")).toHaveTextContent(new RegExp(`^${typed.replace(/\./g, "\\.")}$`));
+			expect(input.value).toBe(typed);
+			expect(onSelect).not.toHaveBeenCalled();
+		});
+	}
+
+	it("no option is highlighted while typing, and Enter just closes the menu", () => {
+		render(<Harness candidates={prefixData} />);
+		const input = typeInto("app");
+		expect(document.querySelector(".react-select__menu")).not.toBeNull();
+		expect(focusedOption()).toBeNull();
+		fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+		expect(document.querySelector(".react-select__menu")).toBeNull();
+		expect(screen.getByTestId("value")).toHaveTextContent(/^app$/);
+	});
+
+	it("clicking into a filled field and pressing Tab keeps the value", () => {
+		const onSelect = vi.fn();
+		render(<Harness candidates={prefixData} initial="app" onSelectCandidate={onSelect} />);
+		clickControl();
+		expect(document.querySelector(".react-select__menu")).not.toBeNull();
+		expect(focusedOption()).toBeNull();
+		fireEvent.keyDown(hostInput(), { key: "Tab", code: "Tab" });
+		expect(screen.getByTestId("value")).toHaveTextContent(/^app$/);
+		expect(onSelect).not.toHaveBeenCalled();
+	});
+
+	it("pressing Enter in a filled field keeps the value", () => {
+		const onSelect = vi.fn();
+		render(<Harness candidates={prefixData} initial="app" onSelectCandidate={onSelect} />);
+		clickControl();
+		fireEvent.keyDown(hostInput(), { key: "Enter", code: "Enter" });
+		expect(screen.getByTestId("value")).toHaveTextContent(/^app$/);
+		expect(hostInput().value).toBe("app");
+		expect(onSelect).not.toHaveBeenCalled();
+	});
+
+	it("arrow keys highlight an option and Enter picks it", () => {
+		const onSelect = vi.fn();
+		render(<Harness candidates={prefixData} onSelectCandidate={onSelect} />);
+		const input = typeInto("app");
+		fireEvent.keyDown(input, { key: "ArrowDown", code: "ArrowDown" });
+		// the first press highlights the first match instead of skipping it
+		expect(focusedOption()).toHaveTextContent("app-db");
+		fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+		expect(screen.getByTestId("value")).toHaveTextContent(/^app-db$/);
+		expect(onSelect).toHaveBeenCalledWith({ port: 5432 }, expect.objectContaining({ host: "app-db" }));
+	});
+
+	it("ArrowDown on a closed menu opens it with the first option highlighted", () => {
+		render(<Harness candidates={prefixData} />);
+		const input = hostInput();
+		fireEvent.focus(input);
+		fireEvent.keyDown(input, { key: "ArrowDown", code: "ArrowDown" });
+		expect(focusedOption()).toHaveTextContent("app-db");
+		fireEvent.keyDown(input, { key: "ArrowDown", code: "ArrowDown" });
+		expect(focusedOption()).toHaveTextContent("web");
+	});
+
+	it("typing after using the arrows drops the highlight again", () => {
+		const onSelect = vi.fn();
+		render(<Harness candidates={prefixData} onSelectCandidate={onSelect} />);
+		const input = typeInto("a");
+		fireEvent.keyDown(input, { key: "ArrowDown", code: "ArrowDown" });
+		expect(focusedOption()).not.toBeNull();
+		fireEvent.change(input, { target: { value: "ap" } });
+		expect(focusedOption()).toBeNull();
+		fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+		fireEvent.keyDown(input, { key: "Tab", code: "Tab" });
+		expect(screen.getByTestId("value")).toHaveTextContent(/^ap$/);
+		expect(onSelect).not.toHaveBeenCalled();
+	});
+
+	it("a click on an option still picks it", () => {
+		const onSelect = vi.fn();
+		render(<Harness candidates={prefixData} onSelectCandidate={onSelect} />);
+		typeInto("app");
+		fireEvent.click(screen.getByText("app-db"));
+		expect(screen.getByTestId("value")).toHaveTextContent(/^app-db$/);
+		expect(onSelect).toHaveBeenCalledTimes(1);
+	});
+
+	it("a filled field offers all candidates until the user types", () => {
+		render(<Harness candidates={prefixData} initial="app-db" />);
+		clickControl();
+		expect(optionTexts()).toEqual(["app-db", "web", "10.0.0.15"]);
+		fireEvent.change(hostInput(), { target: { value: "app-d" } });
+		expect(optionTexts()).toEqual(["app-db"]);
+	});
+});
+
+describe("allowedPrefill", () => {
+	it("fills empty fields", () => {
+		expect(allowedPrefill({ port: 3000, scheme: "https" }, { port: "", scheme: undefined }, {})).toEqual({
+			port: 3000,
+			scheme: "https",
+		});
+	});
+
+	it("replaces fields that still hold their initial value", () => {
+		expect(
+			allowedPrefill({ port: 3000, scheme: "https" }, { port: 80, scheme: "http" }, { port: 80, scheme: "http" }),
+		).toEqual({ port: 3000, scheme: "https" });
+		// form values may be strings while the initial ones are numbers
+		expect(allowedPrefill({ port: 3000 }, { port: "80" }, { port: 80 })).toEqual({ port: 3000 });
+	});
+
+	it("keeps a port or scheme the user changed", () => {
+		expect(
+			allowedPrefill(
+				{ port: 3000, scheme: "https" },
+				{ port: 8443, scheme: "http" },
+				{ port: 80, scheme: "http" },
+			),
+		).toEqual({ scheme: "https" });
+		expect(
+			allowedPrefill({ port: 3000, scheme: "http" }, { port: 80, scheme: "https" }, { port: 80, scheme: "http" }),
+		).toEqual({
+			port: 3000,
+		});
+	});
+
+	it("replaces what an earlier pick filled in", () => {
+		expect(allowedPrefill({ port: 4000 }, { port: 3000 }, { port: 80 }, { port: 3000 })).toEqual({ port: 4000 });
+		expect(allowedPrefill({ port: 4000 }, { port: 3001 }, { port: 80 }, { port: 3000 })).toEqual({});
+	});
+
+	it("returns nothing for an empty prefill", () => {
+		expect(allowedPrefill({}, { port: "" }, {})).toEqual({});
 	});
 });
