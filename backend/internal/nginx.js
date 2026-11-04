@@ -232,7 +232,12 @@ const internalNginx = {
 				if (!internalNginx.isHostLevelError(err)) {
 					throw err;
 				}
-				return { meta: null, error: err, locations: err.locationStates || null, aside: aside.map(describeAside) };
+				return {
+					meta: null,
+					error: err,
+					locations: err.locationStates || null,
+					aside: aside.map(describeAside),
+				};
 			} finally {
 				internalNginx.restoreConfig(filename, previous);
 				internalNginx.restoreConfig(`${filename}.err`, previousErr);
@@ -419,7 +424,8 @@ const internalNginx = {
 							host_type: other.host_type,
 							host_id: other.host_id,
 							file: otherFile,
-							parsed: others.length > 1 ? Object.assign({}, blame.parsed, { file: otherFile }) : blame.parsed,
+							parsed:
+								others.length > 1 ? Object.assign({}, blame.parsed, { file: otherFile }) : blame.parsed,
 						});
 						moved = true;
 					}

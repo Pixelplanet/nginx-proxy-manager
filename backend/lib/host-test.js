@@ -86,4 +86,11 @@ const mergeTargetResults = (targets, results) =>
 		}),
 	);
 
-export { buildTestResult, buildTestTargets, hasQuarantinedLocation, MAX_TEST_TARGETS, mergeTargetResults, WARNING_MESSAGES };
+export {
+	buildTestResult,
+	buildTestTargets,
+	hasQuarantinedLocation,
+	MAX_TEST_TARGETS,
+	mergeTargetResults,
+	WARNING_MESSAGES,
+};

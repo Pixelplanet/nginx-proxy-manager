@@ -142,7 +142,12 @@ const internalHostTest = {
 							host_type: other.host_type,
 							host_id: other.host_id,
 						}
-					: { code: "other_host_broken", message: WARNING_MESSAGES.other_host_hidden, host_type: null, host_id: null },
+					: {
+							code: "other_host_broken",
+							message: WARNING_MESSAGES.other_host_hidden,
+							host_type: null,
+							host_id: null,
+						},
 			);
 		}
 
