@@ -355,6 +355,23 @@ describe("allowedPrefill", () => {
 	});
 });
 
+// What a browser does on Tab when the keydown isn't prevented: focus the next
+// element in tab order (as it is after React has handled the keydown).
+const pressTab = (from: HTMLElement) => {
+	const notPrevented = fireEvent.keyDown(from, { key: "Tab", code: "Tab" });
+	if (!notPrevented) return;
+	const tabbable = Array.from(
+		document.querySelectorAll<HTMLElement>("input, button, select, textarea, a[href], [tabindex]"),
+	).filter((el) => el.tabIndex >= 0 && !(el as HTMLButtonElement).disabled);
+	const next = tabbable[tabbable.indexOf(from) + 1];
+	from.blur();
+	fireEvent.blur(from);
+	if (next) {
+		next.focus();
+		fireEvent.focus(next);
+	}
+};
+
 describe("UpstreamField selection guard", () => {
 	afterEach(() => {
 		cleanup();
@@ -390,6 +407,33 @@ describe("UpstreamField selection guard", () => {
 		fireEvent.change(hostInput(), { target: { value: "" } });
 		fireEvent.keyDown(hostInput(), { key: " ", code: "Space" });
 		expect(screen.getByTestId("value")).toHaveTextContent(/^$/);
+		expect(onSelect).not.toHaveBeenCalled();
+	});
+
+	it("Tab with the menu open closes it and moves on to the next field, keeping the value", () => {
+		hookState.data = prefixData;
+		render(<Harness initial="my-host" />);
+		clickControl();
+		expect(document.querySelector(".react-select__menu")).not.toBeNull();
+		// the refresh button in the menu footer is shown but isn't a Tab stop
+		const refresh = screen.getByLabelText("Refresh suggestions");
+		expect(refresh.tabIndex).toBe(-1);
+		pressTab(hostInput());
+		expect(document.querySelector(".react-select__menu")).toBeNull();
+		expect(document.activeElement).toBe(document.getElementById("port"));
+		expect(screen.getByTestId("value")).toHaveTextContent(/^my-host$/);
+		expect(hostInput().value).toBe("my-host");
+	});
+
+	it("Tab after typing with the menu open moves on and keeps the typed text", () => {
+		hookState.data = prefixData;
+		const onSelect = vi.fn();
+		render(<Harness onSelectCandidate={onSelect} />);
+		const input = typeInto("app");
+		expect(document.querySelector(".react-select__menu")).not.toBeNull();
+		pressTab(input);
+		expect(document.activeElement).toBe(document.getElementById("port"));
+		expect(screen.getByTestId("value")).toHaveTextContent(/^app$/);
 		expect(onSelect).not.toHaveBeenCalled();
 	});
 

@@ -199,6 +199,10 @@ function MenuList(props: MenuListProps<UpstreamOption, false, GroupBase<Upstream
 						title={intl.formatMessage({ id: "upstream.refresh" })}
 						aria-label={intl.formatMessage({ id: "upstream.refresh" })}
 						disabled={isRefreshing}
+						// Not a Tab stop: Tab from the input must reach the next field. The menu
+						// closes when the input loses focus, which would unmount the button and
+						// leave the focus nowhere.
+						tabIndex={-1}
 						// keep the menu open and the input focused
 						onMouseDown={(e) => e.preventDefault()}
 						onClick={() => onRefresh()}
@@ -317,6 +321,13 @@ export function UpstreamField({
 				// field. A leading space is no use in a host name either.
 				if (menuIsOpen && !input) {
 					e.preventDefault();
+				}
+				break;
+			case "Tab":
+				// Close the menu before the browser moves the focus, so the focus goes
+				// to the next field. The typed text stays (tabSelectsValue is off).
+				if (menuIsOpen) {
+					setMenuIsOpen(false);
 				}
 				break;
 		}
