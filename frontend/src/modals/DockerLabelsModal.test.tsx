@@ -15,7 +15,9 @@ const suggestion = (s: Partial<UpstreamSuggestion>): UpstreamSuggestion => ({
 	blockExploits: false,
 	cachingEnabled: false,
 	http2Support: false,
+	ignoredDomains: [],
 	existingHostId: null,
+	existingHostType: null,
 	...s,
 });
 
@@ -49,7 +51,12 @@ const shop = candidate({
 	host: "shop",
 	label: "shop (container)",
 	state: "exited",
-	suggestion: suggestion({ domainNames: ["shop.example.com"], forwardHost: "shop", existingHostId: 7 }),
+	suggestion: suggestion({
+		domainNames: ["shop.example.com"],
+		forwardHost: "shop",
+		existingHostId: 7,
+		existingHostType: "proxy_host",
+	}),
 });
 const worker = candidate({
 	host: "worker",
@@ -129,8 +136,59 @@ describe("DockerLabelsList", () => {
 		const shopRow = await screen.findByTestId("labelled-shop");
 		expect(shopRow.textContent).toContain("exited");
 		fireEvent.click(shopRow.querySelector("button") as HTMLElement);
-		expect(onOpen).toHaveBeenCalledWith(7);
+		expect(onOpen).toHaveBeenCalledWith("proxy_host", 7);
 		expect(onCreate).not.toHaveBeenCalled();
+		expect(screen.queryByTestId("used-by")).toBeNull();
+	});
+
+	it("explains a domain taken by a redirection or 404 host instead of offering Create", async () => {
+		const redirected = candidate({
+			host: "wiki",
+			suggestion: suggestion({
+				domainNames: ["wiki.example.com"],
+				forwardHost: "wiki",
+				existingHostId: 4,
+				existingHostType: "redirection_host",
+			}),
+		});
+		const dead = candidate({
+			host: "gone",
+			suggestion: suggestion({
+				domainNames: ["gone.example.com"],
+				forwardHost: "gone",
+				existingHostId: 5,
+				existingHostType: "dead_host",
+			}),
+		});
+		renderModal(data([redirected, dead]));
+		const wikiRow = await screen.findByTestId("labelled-wiki");
+		expect(wikiRow.querySelectorAll("button")).toHaveLength(1);
+		expect(wikiRow.querySelector("[data-testid=used-by]")?.textContent).toContain("redirection host");
+		fireEvent.click(wikiRow.querySelector("button") as HTMLElement);
+		expect(onOpen).toHaveBeenCalledWith("redirection_host", 4);
+		const goneRow = screen.getByTestId("labelled-gone");
+		expect(goneRow.querySelector("[data-testid=used-by]")?.textContent).toContain("404 host");
+		fireEvent.click(goneRow.querySelector("button") as HTMLElement);
+		expect(onOpen).toHaveBeenCalledWith("dead_host", 5);
+		expect(onCreate).not.toHaveBeenCalled();
+	});
+
+	it("says which npm.domain entries were not used, and shows such containers right away", async () => {
+		const partly = candidate({
+			host: "partly",
+			suggestion: suggestion({ domainNames: ["ok.example.com"], ignoredDomains: ["bad!.example.com"] }),
+		});
+		const onlyBad = candidate({
+			host: "onlybad",
+			suggestion: suggestion({ forwardHost: "onlybad", ignoredDomains: ["*.com"] }),
+		});
+		renderModal(data([partly, onlyBad, worker]));
+		const row = await screen.findByTestId("labelled-partly");
+		expect(row.querySelector("[data-testid=ignored-domains]")?.textContent).toContain("bad!.example.com");
+		// "Other" is open because a container there had an npm.domain label without a usable name
+		const other = screen.getByTestId("other-onlybad");
+		expect(other.querySelector("[data-testid=ignored-domains]")?.textContent).toContain("*.com");
+		expect(screen.getByTestId("other-worker").querySelector("[data-testid=ignored-domains]")).toBeNull();
 	});
 
 	it("lists other containers collapsed and explains the labels when none are labelled", async () => {

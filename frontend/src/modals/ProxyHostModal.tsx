@@ -194,7 +194,9 @@ const ProxyHostModal = EasyModal.create(({ id, prefill, visible, remove }: Props
 							// SSL tab
 							certificateId: data?.certificateId || 0,
 							sslForced: data?.sslForced || false,
-							http2Support: prefill?.http2Support ?? (data?.http2Support || false),
+							// A prefilled (new) host has no certificate yet, and HTTP/2 can't be turned off without one:
+							// a npm.http2 label only takes effect once a certificate is picked (http2OnCertificate)
+							http2Support: data?.http2Support || false,
 							hstsEnabled: data?.hstsEnabled || false,
 							hstsSubdomains: data?.hstsSubdomains || false,
 							trustForwardedProto: data?.trustForwardedProto || false,
@@ -469,6 +471,7 @@ const ProxyHostModal = EasyModal.create(({ id, prefill, visible, remove }: Props
 													name="certificateId"
 													label="ssl-certificate"
 													allowNew
+													http2OnCertificate={!!prefill?.http2Support}
 												/>
 												<SSLOptionsFields color="bg-lime" forProxyHost={true} />
 											</div>

@@ -214,8 +214,9 @@ const looksLikeSelf = (container, mine) => {
 const TRUE_RE = /^(1|true|yes|on)$/i;
 const FALSE_RE = /^(0|false|no|off)$/i;
 const MAX_LABEL_DOMAINS = 100;
-// Letters (also IDN), digits, dots, hyphens, underscores: a subset of what the domain names field and the
-// domain_names schema accept. Rejects wildcards, which need a DNS challenge certificate a label can't choose.
+const MAX_IGNORED_DOMAINS = 10;
+// Letters (also IDN), digits, dots, hyphens, underscores, plus one leading "*." wildcard: a subset of what the
+// proxy host domain names field and the domain_names schema accept.
 const DOMAIN_CHARS_RE = /^[\p{L}\p{N}\p{M}._-]+$/u;
 
 /**
@@ -235,14 +236,8 @@ const labelBool = (value) => {
 	return null;
 };
 
-/**
- * Whether a domain from a label would be accepted by the domain names field (and is a sane host name).
- *
- * @param   {string} domain  lower-cased and trimmed
- * @returns {boolean}
- */
-const isValidLabelDomain = (domain) =>
-	typeof domain === "string" &&
+// A domain name without wildcard (see isValidLabelDomain)
+const isPlainLabelDomain = (domain) =>
 	domain.length >= 3 &&
 	domain.length <= 253 &&
 	DOMAIN_CHARS_RE.test(domain) &&
@@ -252,47 +247,88 @@ const isValidLabelDomain = (domain) =>
 	domain.split(".").every((part) => part.length <= 63 && !part.startsWith("-") && !part.endsWith("-"));
 
 /**
- * Parses the npm.domain label: comma and/or white space separated domain names.
- * Invalid entries are dropped, duplicates removed, at most 100 kept.
+ * Whether a domain from a label would be accepted by the proxy host domain names field (and is a sane host
+ * name). A wildcard is allowed only as a leading "*." in front of at least two labels ("*.example.com", not
+ * "*.com"), the form nginx and DNS challenge certificates both understand.
+ *
+ * @param   {string} domain  lower-cased and trimmed
+ * @returns {boolean}
+ */
+const isValidLabelDomain = (domain) => {
+	if (typeof domain !== "string") {
+		return false;
+	}
+	if (domain.startsWith("*.")) {
+		const rest = domain.slice(2);
+		return rest.includes(".") && domain.length <= 253 && isPlainLabelDomain(rest);
+	}
+	return isPlainLabelDomain(domain);
+};
+
+/**
+ * Splits the npm.domain label (comma and/or white space separated domain names) into the usable domain
+ * names (duplicates removed, at most 100) and the entries that were dropped because the domain names field
+ * would refuse them (at most 10, each cut to 100 characters), so the UI can say why a name is missing.
+ *
+ * @param   {any} value
+ * @returns {{domains: string[], ignored: string[]}}
+ */
+const splitLabelDomains = (value) => {
+	const domains = [];
+	const ignored = [];
+	if (typeof value !== "string") {
+		return { domains, ignored };
+	}
+	for (const raw of value.split(/[\s,]+/)) {
+		if (domains.length >= MAX_LABEL_DOMAINS) {
+			break;
+		}
+		const domain = raw.trim().toLowerCase();
+		if (!domain) {
+			continue;
+		}
+		if (isValidLabelDomain(domain)) {
+			if (!domains.includes(domain)) {
+				domains.push(domain);
+			}
+			continue;
+		}
+		const shown = domain.slice(0, 100);
+		if (ignored.length < MAX_IGNORED_DOMAINS && !ignored.includes(shown)) {
+			ignored.push(shown);
+		}
+	}
+	return { domains, ignored };
+};
+
+/**
+ * Parses the npm.domain label: the usable domain names only (see splitLabelDomains).
  *
  * @param   {any} value
  * @returns {string[]}
  */
-const parseLabelDomains = (value) => {
-	if (typeof value !== "string") {
-		return [];
-	}
-	const domains = [];
-	for (const raw of value.split(/[\s,]+/)) {
-		const domain = raw.trim().toLowerCase();
-		if (domain && isValidLabelDomain(domain) && !domains.includes(domain)) {
-			domains.push(domain);
-		}
-		if (domains.length >= MAX_LABEL_DOMAINS) {
-			break;
-		}
-	}
-	return domains;
-};
+const parseLabelDomains = (value) => splitLabelDomains(value).domains;
 
 /**
  * Reads the hints from npm.* labels. No other label ever leaves this module.
  * Invalid values are ignored (null / empty).
  *
  * @param   {object} labels
- * @returns {{hide: boolean, port: number|null, scheme: string|null, domains: string[], websocket: boolean|null,
- *            block_exploits: boolean|null, caching: boolean|null, http2: boolean|null}}
+ * @returns {{hide: boolean, port: number|null, scheme: string|null, domains: string[], ignored_domains: string[],
+ *            websocket: boolean|null, block_exploits: boolean|null, caching: boolean|null, http2: boolean|null}}
  */
 const parseNpmLabels = (labels) => {
 	const l = labels && typeof labels === "object" ? labels : {};
 	const rawPort = `${l["npm.port"] ?? ""}`.trim();
 	const port = /^\d{1,5}$/.test(rawPort) ? Number.parseInt(rawPort, 10) : 0;
 	const scheme = `${l["npm.scheme"] ?? ""}`.trim().toLowerCase();
+	const { domains, ignored } = splitLabelDomains(l["npm.domain"]);
 	return {
 		hide: labelBool(l["npm.hide"]) === true,
 		port: port >= 1 && port <= 65535 ? port : null,
 		scheme: scheme === "http" || scheme === "https" ? scheme : null,
-		domains: parseLabelDomains(l["npm.domain"]),
+		domains,
+		ignored_domains: ignored,
 		websocket: labelBool(l["npm.websocket"]),
 		block_exploits: labelBool(l["npm.block_exploits"]),
 		caching: labelBool(l["npm.caching"]),
@@ -383,7 +419,9 @@ const containersToCandidates = (containers, { networks, selfId }) => {
 			block_exploits: hints.block_exploits === true,
 			caching_enabled: hints.caching === true,
 			http2_support: hints.http2 === true,
+			ignored_domains: hints.ignored_domains,
 			existing_host_id: null,
+			existing_host_type: null,
 		};
 
 		items.push({ ...base, host: names[0], label: `${names[0]} (container)`, suggestion });
@@ -531,6 +569,7 @@ export {
 	ownAddresses,
 	parseDockerHost,
 	parseLabelDomains,
+	splitLabelDomains,
 	parseMountinfoContainerId,
 	parseNpmLabels,
 	usableNames,

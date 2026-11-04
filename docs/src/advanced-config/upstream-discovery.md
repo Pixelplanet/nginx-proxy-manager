@@ -77,16 +77,17 @@ host from a container in one click:
 | `npm.websocket` | `npm.websocket=true` | Turns on "Websockets Support" |
 | `npm.block_exploits` | `npm.block_exploits=true` | Turns on "Block Common Exploits" |
 | `npm.caching` | `npm.caching=true` | Turns on "Cache Assets" |
-| `npm.http2` | `npm.http2=true` | Turns on "HTTP/2 Support" (takes effect once the host has a certificate) |
+| `npm.http2` | `npm.http2=true` | Turns on "HTTP/2 Support" as soon as you pick a certificate in the form (HTTP/2 needs one, so it stays off without) |
 | `npm.hide` | `npm.hide=true` | Never suggest this container |
 
 Without `npm.port`, the port is filled in only when the container exposes exactly one TCP port.
 Without `npm.scheme`, the scheme is `https` for port 443 and 8443, otherwise `http`.
 
 Invalid values are ignored rather than rejected: `true`/`false` also accept `1`/`0`, `yes`/`no` and
-`on`/`off`; anything else counts as not set. Domain names that the domain field would refuse, and
-wildcards (they need a DNS challenge certificate, which a label can't choose), are dropped from
-`npm.domain`.
+`on`/`off`; anything else counts as not set. Domain names that the domain field would refuse are
+dropped from `npm.domain`, and the list shows them under the container. A wildcard is accepted only
+in front: `*.example.com` works, `*.com` and `www.example.*` don't. A wildcard host needs a DNS
+challenge certificate if you want HTTPS; pick it in the form.
 
 #### Create a proxy host from labels
 
@@ -97,9 +98,14 @@ alone can't read labels.
 - **Create** opens the proxy host form filled in from the labels: domain names, scheme, the
   container name as forward host, port and the switches above. Check it, add a certificate if you
   want one, and save. Nothing is created until you save.
-- **Open** is shown instead when a proxy host (that you can see) already uses one of the domains.
-- Containers without `npm.domain` are listed under **Other containers**; there **Create** fills in
-  only the forward host, scheme and port.
+- **Open** is shown instead when a host that you can see already uses one of the domains. For a
+  proxy host that is the host to edit. For a redirection host or a 404 host the list says so: change
+  or remove that host first, since two hosts can't share a domain name. A host you can't see (other
+  users' hosts, when you only see your own) still blocks the domain; saving then fails with
+  "_domain_ is already in use".
+- Containers without a usable `npm.domain` are listed under **Other containers**; there **Create**
+  fills in only the forward host, scheme and port. If a container's `npm.domain` had only names that
+  were dropped, that section opens by itself and shows them.
 
 NPM never creates or changes hosts by itself because of labels; the labels are only read when you
 open the list.

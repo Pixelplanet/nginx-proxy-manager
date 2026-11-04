@@ -142,35 +142,59 @@ const mergeCandidates = (lists, max = MAX_ITEMS) => {
 	return items.slice(0, max);
 };
 
+// Host types that can hold a domain name, in the order a match is reported (a proxy host can be opened from
+// the label list, the others only explain why Create would fail)
+const HOST_TYPES = [
+	["proxy_host", "proxyHosts"],
+	["redirection_host", "redirectionHosts"],
+	["dead_host", "deadHosts"],
+];
+
 /**
- * Returns copies of the items whose label suggestion points at a proxy host that already serves one of
- * its domains (`existing_host_id`). The input items (shared by the discovery cache) are not changed.
+ * Returns copies of the items whose label suggestion points at a host that already serves one of its domains
+ * (`existing_host_id` + `existing_host_type`). A proxy host wins over a redirection host, which wins over a
+ * 404 host. The input items (shared by the discovery cache) are not changed.
  *
  * @param   {Array<object>} items
- * @param   {Array<object>} proxyHosts  non-deleted proxy_host rows the user can see (id, domain_names)
+ * @param   {object}        [hosts]  non-deleted rows the user can see (id, domain_names) per host type
+ * @param   {Array<object>} [hosts.proxyHosts]
+ * @param   {Array<object>} [hosts.redirectionHosts]
+ * @param   {Array<object>} [hosts.deadHosts]
  * @returns {Array<object>}
  */
-const markExistingHosts = (items, proxyHosts = []) => {
+const markExistingHosts = (items, hosts = {}) => {
 	const byDomain = new Map();
-	for (const row of proxyHosts || []) {
-		for (const domain of Array.isArray(row?.domain_names) ? row.domain_names : []) {
-			const key = `${domain ?? ""}`.trim().toLowerCase();
-			if (key && !byDomain.has(key)) {
-				byDomain.set(key, row.id);
+	for (const [type, key] of HOST_TYPES) {
+		for (const row of hosts?.[key] || []) {
+			for (const domain of Array.isArray(row?.domain_names) ? row.domain_names : []) {
+				const name = `${domain ?? ""}`.trim().toLowerCase();
+				if (name && !byDomain.has(name)) {
+					byDomain.set(name, { id: row.id, type });
+				}
 			}
 		}
 	}
+	// best match over all the suggestion's domains: the earliest host type
+	const rank = (m) => HOST_TYPES.findIndex(([type]) => type === m.type);
 	return items.map((item) => {
 		if (!item.suggestion) {
 			return item;
 		}
-		const match = (item.suggestion.domain_names || []).find((d) => byDomain.has(d.toLowerCase()));
+		let match = null;
+		for (const d of item.suggestion.domain_names || []) {
+			const m = byDomain.get(d.toLowerCase());
+			if (m && (!match || rank(m) < rank(match))) {
+				match = m;
+			}
+		}
 		return {
 			...item,
 			suggestion: {
 				...item.suggestion,
 				domain_names: [...(item.suggestion.domain_names || [])],
-				existing_host_id: match ? byDomain.get(match.toLowerCase()) : null,
+				ignored_domains: [...(item.suggestion.ignored_domains || [])],
+				existing_host_id: match ? match.id : null,
+				existing_host_type: match ? match.type : null,
 			},
 		};
 	});

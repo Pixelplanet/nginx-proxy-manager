@@ -15,6 +15,7 @@ import {
 	looksLikeSelf,
 	parseDockerHost,
 	parseLabelDomains,
+	splitLabelDomains,
 	parseMountinfoContainerId,
 	parseNpmLabels,
 	usableNames,
@@ -112,6 +113,7 @@ describe("docker: DOCKER_HOST parsing and allowlist", () => {
 	it("reads npm.* labels only", () => {
 		const none = {
 			domains: [],
+			ignored_domains: [],
 			websocket: null,
 			block_exploits: null,
 			caching: null,
@@ -147,6 +149,7 @@ describe("docker: DOCKER_HOST parsing and allowlist", () => {
 				port: 3000,
 				scheme: null,
 				domains: ["app.example.com", "www.example.com"],
+				ignored_domains: [],
 				websocket: true,
 				block_exploits: true,
 				caching: false,
@@ -163,13 +166,41 @@ describe("docker: DOCKER_HOST parsing and allowlist", () => {
 				"*.example.com a.b ok.example.com bad;rm.example.com x .lead.com trail.com. dou..ble.com -h.com h-.com " +
 					"münchen.example.com under_score.example.com $(id).com a/b.com",
 			),
-			["a.b", "ok.example.com", "münchen.example.com", "under_score.example.com"],
+			["*.example.com", "a.b", "ok.example.com", "münchen.example.com", "under_score.example.com"],
 		);
+		// single leading wildcard in front of two or more labels only (the proxy host field refuses "*.com")
+		for (const bad of [
+			"*.com",
+			"*",
+			"*.",
+			"**.example.com",
+			"*.*.example.com",
+			"a.*.example.com",
+			"www.example.*",
+			"*example.com",
+		]) {
+			assert.equal(isValidLabelDomain(bad), false, bad);
+		}
+		assert.equal(isValidLabelDomain("*.sub.example.com"), true);
+		assert.equal(isValidLabelDomain("*.-bad.example.com"), false);
 		assert.deepEqual(parseLabelDomains(undefined), []);
 		assert.deepEqual(parseLabelDomains(42), []);
 		assert.equal(isValidLabelDomain(`${"a".repeat(64)}.com`), false);
 		const many = Array.from({ length: 150 }, (_, i) => `d${i}.example.com`).join(",");
 		assert.equal(parseLabelDomains(many).length, 100);
+	});
+
+	it("reports the npm.domain entries it drops", () => {
+		assert.deepEqual(splitLabelDomains("*.com, ok.example.com bad;rm.example.com *.com OK.example.com"), {
+			domains: ["ok.example.com"],
+			ignored: ["*.com", "bad;rm.example.com"],
+		});
+		assert.deepEqual(splitLabelDomains(undefined), { domains: [], ignored: [] });
+		const junk = Array.from({ length: 20 }, (_, i) => `bad${i}!.com`).join(" ");
+		assert.equal(splitLabelDomains(junk).ignored.length, 10);
+		assert.equal(splitLabelDomains(`${"x".repeat(300)}!`).ignored[0].length, 100);
+		assert.deepEqual(parseNpmLabels({ "npm.domain": "*.com" }).ignored_domains, ["*.com"]);
+		assert.deepEqual(parseNpmLabels({ "npm.domain": "*.com" }).domains, []);
 	});
 });
 
@@ -240,7 +271,9 @@ describe("docker: candidate parsing from fixture JSON", () => {
 			block_exploits: false,
 			caching_enabled: false,
 			http2_support: false,
+			ignored_domains: [],
 			existing_host_id: null,
+			existing_host_type: null,
 		});
 		assert.equal(byHost.web.suggestion, undefined);
 		assert.equal(byHost.grafana.suggestion.forward_scheme, "https");
@@ -253,7 +286,7 @@ describe("docker: candidate parsing from fixture JSON", () => {
 					Id: "f".repeat(64),
 					Names: ["/blog"],
 					Labels: {
-						"npm.domain": "blog.example.com,www.blog.example.com",
+						"npm.domain": "blog.example.com,www.blog.example.com *.com",
 						"npm.port": "2368",
 						"npm.scheme": "http",
 						"npm.websocket": "true",
@@ -277,7 +310,9 @@ describe("docker: candidate parsing from fixture JSON", () => {
 			block_exploits: true,
 			caching_enabled: true,
 			http2_support: true,
+			ignored_domains: ["*.com"],
 			existing_host_id: null,
+			existing_host_type: null,
 		});
 		assert.equal(labelled.state, "exited");
 	});

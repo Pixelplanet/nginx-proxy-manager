@@ -59,8 +59,12 @@ describe('Docker label suggestions', () => {
 				expect(s.domain_names).to.be.an('array');
 				for (const domain of s.domain_names) {
 					expect(domain).to.equal(domain.toLowerCase());
-					expect(domain).not.to.include('*');
+					// at most a single leading "*." wildcard, never "*.com"
+					expect(domain.replace(/^\*\./, '')).not.to.include('*');
+					expect(domain.replace(/^\*\./, '')).to.include('.');
 				}
+				expect(s.ignored_domains).to.be.an('array');
+				expect(s.existing_host_type).to.be.oneOf([null, 'proxy_host', 'redirection_host', 'dead_host']);
 			}
 			if (data.providers.docker.status !== 'ok') {
 				expect(suggested).to.have.length(0);
@@ -76,16 +80,18 @@ describe('Docker label suggestions', () => {
 				return;
 			}
 
-			// The fixture's labels: npm.domain "Labels-Blog.example.com, www.labels-blog.example.com, *.bad.example.com",
-			// npm.port 80, npm.websocket true, npm.block_exploits yes, npm.caching off, npm.http2 maybe
+			// The fixture's labels: npm.domain "Labels-Blog.example.com, www.labels-blog.example.com, *.labels-blog.example.com,
+			// *.com, bad!.example.com", npm.port 80, npm.websocket true, npm.block_exploits yes, npm.caching off, npm.http2 maybe
 			const s = item.suggestion;
-			expect(s.domain_names).to.deep.equal([fixtureDomain, `www.${fixtureDomain}`]);
+			expect(s.domain_names).to.deep.equal([fixtureDomain, `www.${fixtureDomain}`, `*.${fixtureDomain}`]);
+			expect(s.ignored_domains).to.deep.equal(['*.com', 'bad!.example.com']);
 			expect(s.forward_port).to.equal(80);
 			expect(s.allow_websocket_upgrade).to.equal(true);
 			expect(s.block_exploits).to.equal(true);
 			expect(s.caching_enabled).to.equal(false);
 			expect(s.http2_support).to.equal(false);
 			expect(s.existing_host_id).to.equal(null);
+			expect(s.existing_host_type).to.equal(null);
 
 			// The compose service alias of the same container carries no suggestion
 			for (const alias of data.items.filter((i) => i.label.includes(`compose service of ${item.host}`))) {
@@ -99,13 +105,15 @@ describe('Docker label suggestions', () => {
 				data:  hostBody(s),
 			}).then((host) => {
 				cy.validateSwaggerSchema('post', 201, '/nginx/proxy-hosts', host);
-				expect(host.domain_names).to.deep.equal(s.domain_names);
+				// the backend stores domain names sorted
+				expect(host.domain_names).to.deep.equal([...s.domain_names].sort());
 				expect(host.forward_host).to.equal(s.forward_host);
 				expect(host.allow_websocket_upgrade).to.equal(true);
 
 				getCandidates().then((after) => {
 					const again = withSuggestion(after).find((i) => i.host === item.host);
 					expect(again.suggestion.existing_host_id).to.equal(host.id);
+					expect(again.suggestion.existing_host_type).to.equal('proxy_host');
 				});
 
 				cy.task('backendApiDelete', {
@@ -116,6 +124,44 @@ describe('Docker label suggestions', () => {
 						const again = withSuggestion(after).find((i) => i.host === item.host);
 						expect(again.suggestion.existing_host_id).to.equal(null);
 					});
+				});
+			});
+		});
+	});
+
+	it('Should report a redirection host that already uses a label domain', () => {
+		getCandidates().then((data) => {
+			const item = withSuggestion(data).find((i) => i.suggestion.domain_names.includes(fixtureDomain));
+			if (data.providers.docker.status !== 'ok' || !item) {
+				cy.log('Docker discovery with the label fixture is not running, skipping');
+				return;
+			}
+			cy.task('backendApiPost', {
+				token: token,
+				path:  '/api/nginx/redirection-hosts',
+				data:  {
+					domain_names:        [`www.${fixtureDomain}`],
+					forward_scheme:      'https',
+					forward_http_code:   301,
+					forward_domain_name: 'example.com',
+					preserve_path:       true,
+					block_exploits:      false,
+					certificate_id:      0,
+					ssl_forced:          false,
+					hsts_enabled:        false,
+					hsts_subdomains:     false,
+					meta:                {dns_challenge: false},
+					advanced_config:     '',
+				},
+			}).then((redirect) => {
+				getCandidates().then((after) => {
+					const again = withSuggestion(after).find((i) => i.host === item.host);
+					expect(again.suggestion.existing_host_id).to.equal(redirect.id);
+					expect(again.suggestion.existing_host_type).to.equal('redirection_host');
+				});
+				cy.task('backendApiDelete', {
+					token: token,
+					path:  `/api/nginx/redirection-hosts/${redirect.id}`,
 				});
 			});
 		});

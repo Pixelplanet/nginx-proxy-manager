@@ -8,7 +8,9 @@ import type { UpstreamCandidate, UpstreamCandidates, UpstreamSuggestion } from "
 import { Button, Loading } from "src/components";
 import { useUpstreamCandidates } from "src/hooks";
 import { intl, T } from "src/locale";
+import { showDeadHostModal } from "./DeadHostModal";
 import { type ProxyHostPrefill, showProxyHostModal } from "./ProxyHostModal";
+import { showRedirectionHostModal } from "./RedirectionHostModal";
 
 export const COMPOSE_EXAMPLE = `services:
   whoami:
@@ -44,6 +46,8 @@ export const splitLabelledContainers = (data?: UpstreamCandidates) => {
 
 /**
  * What the proxy host form starts with. Containers without npm.domain only prefill the target.
+ * http2Support is only a wish here: a new host has no certificate, so the form turns HTTP/2 on once the user
+ * picks one (see ProxyHostModal).
  */
 export const suggestionPrefill = (s: UpstreamSuggestion): ProxyHostPrefill => {
 	const target: ProxyHostPrefill = {
@@ -92,6 +96,47 @@ function Target({ s }: { s: UpstreamSuggestion }) {
 	);
 }
 
+function IgnoredDomains({ s }: { s: UpstreamSuggestion }) {
+	if (!s.ignoredDomains?.length) {
+		return null;
+	}
+	return (
+		<div
+			className="small text-warning text-break"
+			title={intl.formatMessage({ id: "docker-labels.ignored-hint" })}
+			data-testid="ignored-domains"
+		>
+			<T id="docker-labels.ignored" data={{ domains: s.ignoredDomains.join(", ") }} />
+		</div>
+	);
+}
+
+/**
+ * Open instead of Create: the domain is taken. A proxy host is the one to edit; a redirection or 404 host has
+ * to be changed (or removed) before a proxy host can use the domain, so say which one it is.
+ */
+function OpenExisting({ s, onOpen }: { s: UpstreamSuggestion; onOpen: ListProps["onOpen"] }) {
+	const type = s.existingHostType || "proxy_host";
+	return (
+		<>
+			<button
+				type="button"
+				className="btn btn-sm"
+				title={intl.formatMessage({ id: "docker-labels.exists" }, { type })}
+				onClick={() => onOpen(type, s.existingHostId as number)}
+				data-testid="open-existing"
+			>
+				<T id="docker-labels.open" />
+			</button>
+			{type !== "proxy_host" ? (
+				<div className="small text-warning text-wrap" data-testid="used-by">
+					<T id="docker-labels.used-by" data={{ type }} />
+				</div>
+			) : null}
+		</>
+	);
+}
+
 function ComposeExample() {
 	const [copied, setCopied] = useState(false);
 	const copy = async () => {
@@ -121,10 +166,12 @@ function ComposeExample() {
 	);
 }
 
+export type ExistingHostType = NonNullable<UpstreamSuggestion["existingHostType"]>;
+
 interface ListProps {
 	data: UpstreamCandidates;
 	onCreate: (prefill: ProxyHostPrefill) => void;
-	onOpen: (id: number) => void;
+	onOpen: (type: ExistingHostType, id: number) => void;
 }
 
 /**
@@ -132,9 +179,10 @@ interface ListProps {
  * DNS discovery, which can't read labels) it says why instead.
  */
 export function DockerLabelsList({ data, onCreate, onOpen }: ListProps) {
-	const [showOther, setShowOther] = useState(false);
 	const docker = data.providers?.docker;
 	const { labelled, other } = splitLabelledContainers(data);
+	// A container whose npm.domain had only unusable names lands in "Other": show it, with the reason
+	const [showOther, setShowOther] = useState(() => other.some((c) => c.suggestion.ignoredDomains?.length));
 
 	if (docker?.status !== "ok") {
 		return (
@@ -172,6 +220,7 @@ export function DockerLabelsList({ data, onCreate, onOpen }: ListProps) {
 											{c.suggestion.domainNames.map((d) => (
 												<div key={d}>{d}</div>
 											))}
+											<IgnoredDomains s={c.suggestion} />
 										</td>
 										<td>
 											<Target s={c.suggestion} />
@@ -182,16 +231,7 @@ export function DockerLabelsList({ data, onCreate, onOpen }: ListProps) {
 										</td>
 										<td className="text-end text-nowrap">
 											{c.suggestion.existingHostId ? (
-												<button
-													type="button"
-													className="btn btn-sm"
-													title={intl.formatMessage({
-														id: "docker-labels.exists",
-													})}
-													onClick={() => onOpen(c.suggestion.existingHostId as number)}
-												>
-													<T id="docker-labels.open" />
-												</button>
+												<OpenExisting s={c.suggestion} onOpen={onOpen} />
 											) : (
 												<button
 													type="button"
@@ -239,6 +279,7 @@ export function DockerLabelsList({ data, onCreate, onOpen }: ListProps) {
 										<tr key={c.host} data-testid={`other-${c.host}`}>
 											<td>
 												<Target s={c.suggestion} />
+												<IgnoredDomains s={c.suggestion} />
 											</td>
 											<td>
 												<StateBadge state={c.state} />
@@ -276,9 +317,15 @@ const DockerLabelsModal = EasyModal.create(({ visible, remove }: Props) => {
 		remove();
 		showProxyHostModal("new", prefill);
 	};
-	const open = (id: number) => {
+	const open = (type: ExistingHostType, id: number) => {
 		remove();
-		showProxyHostModal(id);
+		if (type === "redirection_host") {
+			showRedirectionHostModal(id);
+		} else if (type === "dead_host") {
+			showDeadHostModal(id);
+		} else {
+			showProxyHostModal(id);
+		}
 	};
 
 	return (

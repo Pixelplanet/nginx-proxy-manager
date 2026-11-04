@@ -305,8 +305,12 @@ export interface UpstreamSuggestion {
 	blockExploits: boolean;
 	cachingEnabled: boolean;
 	http2Support: boolean;
-	// a proxy host (visible to the user) already serving one of the domains
+	// npm.domain entries the domain names field would refuse (dropped from domainNames)
+	ignoredDomains: string[];
+	// a host (visible to the user) already serving one of the domains; only a proxy host can be opened
+	// from the label list instead of created
 	existingHostId: number | null;
+	existingHostType: "proxy_host" | "redirection_host" | "dead_host" | null;
 }
 
 export interface UpstreamCandidate {
