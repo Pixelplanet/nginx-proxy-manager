@@ -347,6 +347,45 @@
 	"disabled": {
 		"defaultMessage": "Väljas"
 	},
+	"docker-labels.button": {
+		"defaultMessage": "Dockerist"
+	},
+	"docker-labels.copied": {
+		"defaultMessage": "Kopeeritud"
+	},
+	"docker-labels.copy": {
+		"defaultMessage": "Kopeeri"
+	},
+	"docker-labels.create": {
+		"defaultMessage": "Loo"
+	},
+	"docker-labels.empty": {
+		"defaultMessage": "Ühelgi konteineril pole veel npm.domain silti. Lisa sellised sildid konteinerile, mis on Nginx Proxy Manageriga samas võrgus, loo see uuesti ja värskenda:"
+	},
+	"docker-labels.exists": {
+		"defaultMessage": "Mõni proxy-host kasutab juba ühte neist domeenidest"
+	},
+	"docker-labels.intro": {
+		"defaultMessage": "Neil konteineritel on npm.domain silt. Loo avab täidetud proxy-hosti vormi: kontrolli ja salvesta."
+	},
+	"docker-labels.no-port": {
+		"defaultMessage": "Port puudub: lisa npm.port silt või sisesta see vormis"
+	},
+	"docker-labels.open": {
+		"defaultMessage": "Ava"
+	},
+	"docker-labels.other": {
+		"defaultMessage": "Teised konteinerid ({count})"
+	},
+	"docker-labels.other-hint": {
+		"defaultMessage": "npm.domain silt puudub: Loo täidab ainult sihtkoha."
+	},
+	"docker-labels.title": {
+		"defaultMessage": "Proxy-hostid Dockeri siltidest"
+	},
+	"docker-labels.unavailable": {
+		"defaultMessage": "Dockeri silte ei saa lugeda: {message}"
+	},
 	"domain-names": {
 		"defaultMessage": "Domeeninimed"
 	},

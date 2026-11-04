@@ -347,6 +347,45 @@
 	"disabled": {
 		"defaultMessage": "Deaktiviert"
 	},
+	"docker-labels.button": {
+		"defaultMessage": "Aus Docker"
+	},
+	"docker-labels.copied": {
+		"defaultMessage": "Kopiert"
+	},
+	"docker-labels.copy": {
+		"defaultMessage": "Kopieren"
+	},
+	"docker-labels.create": {
+		"defaultMessage": "Erstellen"
+	},
+	"docker-labels.empty": {
+		"defaultMessage": "Noch kein Container hat ein npm.domain-Label. Labels wie diese einem Container in einem Netzwerk von Nginx Proxy Manager hinzufügen, ihn neu erstellen und dann aktualisieren:"
+	},
+	"docker-labels.exists": {
+		"defaultMessage": "Ein Proxy-Host verwendet bereits eine dieser Domains"
+	},
+	"docker-labels.intro": {
+		"defaultMessage": "Diese Container haben ein npm.domain-Label. Erstellen öffnet ein ausgefülltes Proxy-Host-Formular: prüfen, dann speichern."
+	},
+	"docker-labels.no-port": {
+		"defaultMessage": "Kein Port: npm.port-Label setzen oder im Formular eintragen"
+	},
+	"docker-labels.open": {
+		"defaultMessage": "Öffnen"
+	},
+	"docker-labels.other": {
+		"defaultMessage": "Weitere Container ({count})"
+	},
+	"docker-labels.other-hint": {
+		"defaultMessage": "Kein npm.domain-Label: Erstellen füllt nur das Ziel aus."
+	},
+	"docker-labels.title": {
+		"defaultMessage": "Proxy-Hosts aus Docker-Labels"
+	},
+	"docker-labels.unavailable": {
+		"defaultMessage": "Docker-Labels können nicht gelesen werden: {message}"
+	},
 	"domain-names": {
 		"defaultMessage": "Domain Names"
 	},

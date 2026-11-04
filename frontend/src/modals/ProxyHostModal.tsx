@@ -61,14 +61,33 @@ function TabErrorSwitcher({ onTab }: { onTab: (tab: TabId) => void }) {
 	return null;
 }
 
-const showProxyHostModal = (id: number | "new") => {
-	EasyModal.show(ProxyHostModal, { id });
+// Values a new proxy host starts with (e.g. from Docker labels); the user still reviews and saves
+type ProxyHostPrefill = Partial<
+	Pick<
+		ProxyHost,
+		| "domainNames"
+		| "forwardScheme"
+		| "forwardHost"
+		| "forwardPort"
+		| "allowWebsocketUpgrade"
+		| "blockExploits"
+		| "cachingEnabled"
+		| "http2Support"
+	>
+>;
+
+const showProxyHostModal = (id: number | "new", prefill?: ProxyHostPrefill) => {
+	// `id` doubles as the modal id (InnerModalProps): passed as a variable, an object literal would fail the
+	// excess property check
+	const props = { id, prefill: id === "new" ? prefill : undefined };
+	EasyModal.show(ProxyHostModal, props);
 };
 
 interface Props extends InnerModalProps {
 	id: number | "new";
+	prefill?: ProxyHostPrefill;
 }
-const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
+const ProxyHostModal = EasyModal.create(({ id, prefill, visible, remove }: Props) => {
 	const { data: currentUser, isLoading: userIsLoading, error: userError } = useUser("me");
 	const { data, isLoading, error } = useProxyHost(id);
 	const { mutate: setProxyHost } = useSetProxyHost();
@@ -161,20 +180,21 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 					initialValues={
 						{
 							// Details tab
-							domainNames: data?.domainNames || [],
-							forwardScheme: data?.forwardScheme || "http",
-							forwardHost: data?.forwardHost || "",
-							forwardPort: data?.forwardPort || undefined,
+							domainNames: prefill?.domainNames || data?.domainNames || [],
+							forwardScheme: prefill?.forwardScheme || data?.forwardScheme || "http",
+							forwardHost: prefill?.forwardHost || data?.forwardHost || "",
+							forwardPort: prefill?.forwardPort || data?.forwardPort || undefined,
 							accessListId: data?.accessListId || 0,
-							cachingEnabled: data?.cachingEnabled || false,
-							blockExploits: data?.blockExploits || false,
-							allowWebsocketUpgrade: data?.allowWebsocketUpgrade || false,
+							cachingEnabled: prefill?.cachingEnabled ?? (data?.cachingEnabled || false),
+							blockExploits: prefill?.blockExploits ?? (data?.blockExploits || false),
+							allowWebsocketUpgrade:
+								prefill?.allowWebsocketUpgrade ?? (data?.allowWebsocketUpgrade || false),
 							// Locations tab
 							locations: data?.locations || [],
 							// SSL tab
 							certificateId: data?.certificateId || 0,
 							sslForced: data?.sslForced || false,
-							http2Support: data?.http2Support || false,
+							http2Support: prefill?.http2Support ?? (data?.http2Support || false),
 							hstsEnabled: data?.hstsEnabled || false,
 							hstsSubdomains: data?.hstsSubdomains || false,
 							trustForwardedProto: data?.trustForwardedProto || false,
@@ -484,4 +504,4 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 	);
 });
 
-export { showProxyHostModal };
+export { type ProxyHostPrefill, showProxyHostModal };

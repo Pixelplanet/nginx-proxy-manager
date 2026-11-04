@@ -292,6 +292,23 @@ export interface UpstreamProviderStatus {
 	message: string | null;
 }
 
+/**
+ * A proxy host built from a container's npm.* labels (Docker discovery only).
+ * `domainNames` is empty when the container has no valid npm.domain label.
+ */
+export interface UpstreamSuggestion {
+	domainNames: string[];
+	forwardScheme: "http" | "https";
+	forwardHost: string;
+	forwardPort: number | null;
+	allowWebsocketUpgrade: boolean;
+	blockExploits: boolean;
+	cachingEnabled: boolean;
+	http2Support: boolean;
+	// a proxy host (visible to the user) already serving one of the domains
+	existingHostId: number | null;
+}
+
 export interface UpstreamCandidate {
 	host: string;
 	label: string;
@@ -303,6 +320,7 @@ export interface UpstreamCandidate {
 	state: string | null;
 	ip: string | null;
 	usedBy: number;
+	suggestion?: UpstreamSuggestion;
 }
 
 export interface UpstreamCandidates {
