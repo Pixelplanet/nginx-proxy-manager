@@ -80,7 +80,7 @@ describe("validateLocations", () => {
 		expect(validateLocations([loc({ forwardHost: "$backend" })])[0]).toBeUndefined();
 		expect(validateLocations([loc({ forwardHost: " $up_2 " })])[0]).toBeUndefined();
 		// anything else with a $ (or # or \) is rejected like the backend does
-		for (const host of ["$backend:80", "app$x", "$1x", "${backend}", "a#b", "a\\b"]) {
+		for (const host of ["$backend:80", "app$x", "$1x", "$" + "{backend}", "a#b", "a\\b"]) {
 			expect(validateLocations([loc({ forwardHost: host })])[0]?.forwardHost).toMatch(/not allowed/);
 		}
 	});
