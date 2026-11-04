@@ -10,30 +10,41 @@
 # The backend regenerates these hosts once it is up and marks the ones that are still
 # broken as offline in the UI.
 #
+# The test runs as the user nginx and the backend run as (PUID:PGID). `nginx -t` creates
+# files (log files on a fresh volume, the pid file, ...) and as root they would end up
+# owned by root, which nginx running as PUID can't open.
+#
 # This script never fails the container start.
 
 log_info 'Validating nginx config ...'
 
 NGINX_VALIDATE_MAX=100
 NGINX_VALIDATE_COUNT=0
+NGINX_VALIDATE_HOSTS='/data/nginx/(proxy_host|redirection_host|dead_host|stream)/[0-9]+\.conf'
 
 while [ "$NGINX_VALIDATE_COUNT" -lt "$NGINX_VALIDATE_MAX" ]; do
-	NGINX_VALIDATE_OUTPUT="$(nginx -t -g 'error_log off;' 2>&1 || true)"
+	NGINX_VALIDATE_OUTPUT="$(s6-setuidgid "$PUID:$PGID" nginx -t -g 'error_log /dev/null;' 2>&1 || true)"
 
 	if echo "$NGINX_VALIDATE_OUTPUT" | grep -q 'test is successful'; then
 		break
 	fi
 
-	NGINX_VALIDATE_FILE="$(echo "$NGINX_VALIDATE_OUTPUT" | grep -v '/var/log/nginx/error.log' | grep -oE '/data/nginx/(proxy_host|redirection_host|dead_host|stream)/[0-9]+\.conf' | head -n 1 || true)"
+	# Only the error itself names the broken file: warnings before it (eg. a deprecated
+	# "listen ... http2" in a healthy host) name files too
+	NGINX_VALIDATE_ERROR="$(echo "$NGINX_VALIDATE_OUTPUT" | grep -v '/var/log/nginx/error.log' | grep -E '\[(emerg|alert|crit)\]' | head -n 1 || true)"
+	NGINX_VALIDATE_FILE="$(echo "$NGINX_VALIDATE_ERROR" | grep -oE "in ${NGINX_VALIDATE_HOSTS}:[0-9]+" | head -n 1 | sed -E 's/^in //; s/:[0-9]+$//' || true)"
 
-	# Some errors, eg. a missing certificate file, don't name the config file:
-	# blame the first host config that references a file named in the error
-	if [ -z "$NGINX_VALIDATE_FILE" ]; then
-		for NGINX_VALIDATE_PATH in $(echo "$NGINX_VALIDATE_OUTPUT" | grep -E '\[emerg\]' | grep -oE '"/[^" ]+"' | tr -d '"' || true); do
-			NGINX_VALIDATE_FILE="$(grep -lF "$NGINX_VALIDATE_PATH" /data/nginx/proxy_host/*.conf /data/nginx/redirection_host/*.conf /data/nginx/dead_host/*.conf /data/nginx/stream/*.conf 2>/dev/null | head -n 1 || true)"
-			if [ -n "$NGINX_VALIDATE_FILE" ]; then
-				break
-			fi
+	# Some errors, eg. a missing certificate file, don't name the config file: blame the
+	# first host config that loads a file named in the error with one of its own ssl_*
+	# directives. Any other mention (eg. its access_log) is not enough.
+	if [ -z "$NGINX_VALIDATE_FILE" ] && ! echo "$NGINX_VALIDATE_ERROR" | grep -qE ' in /[^ ]+:[0-9]+$'; then
+		for NGINX_VALIDATE_PATH in $(echo "$NGINX_VALIDATE_ERROR" | grep -oE '"/[^" ]+"' | tr -d '"' || true); do
+			for NGINX_VALIDATE_CANDIDATE in $(grep -lF "$NGINX_VALIDATE_PATH" /data/nginx/proxy_host/*.conf /data/nginx/redirection_host/*.conf /data/nginx/dead_host/*.conf /data/nginx/stream/*.conf 2>/dev/null || true); do
+				if awk -v p="$NGINX_VALIDATE_PATH" '{ sub(/#.*/, "") } $1 ~ /^ssl_[a-z_]+$/ && index($0, p) { found = 1 } END { exit !found }' "$NGINX_VALIDATE_CANDIDATE"; then
+					NGINX_VALIDATE_FILE="$NGINX_VALIDATE_CANDIDATE"
+					break 2
+				fi
+			done
 		done
 	fi
 
@@ -44,7 +55,7 @@ while [ "$NGINX_VALIDATE_COUNT" -lt "$NGINX_VALIDATE_MAX" ]; do
 	fi
 
 	log_error "Disabling ${NGINX_VALIDATE_FILE}, nginx rejected it:"
-	echo "$NGINX_VALIDATE_OUTPUT" | grep -v '/var/log/nginx/error.log' | grep -E '\[(emerg|alert|crit|error)\]' | head -n 1 >&2 || true
+	echo "$NGINX_VALIDATE_ERROR" >&2
 
 	if ! mv -f "$NGINX_VALIDATE_FILE" "${NGINX_VALIDATE_FILE}.err"; then
 		log_error "Could not move ${NGINX_VALIDATE_FILE}"
@@ -54,4 +65,12 @@ while [ "$NGINX_VALIDATE_COUNT" -lt "$NGINX_VALIDATE_MAX" ]; do
 	NGINX_VALIDATE_COUNT=$((NGINX_VALIDATE_COUNT + 1))
 done
 
-unset NGINX_VALIDATE_MAX NGINX_VALIDATE_COUNT NGINX_VALIDATE_OUTPUT NGINX_VALIDATE_FILE NGINX_VALIDATE_PATH
+# Earlier versions ran this test as root. Give what it may have left behind back to the
+# runtime user, otherwise nginx can't open it.
+for NGINX_VALIDATE_PATH in /run/nginx/nginx.pid /etc/nginx/nginx/off /data/logs/fallback_*.log; do
+	if [ -e "$NGINX_VALIDATE_PATH" ] && [ "$(stat -c '%u:%g' "$NGINX_VALIDATE_PATH")" != "$PUID:$PGID" ]; then
+		chown "$PUID:$PGID" "$NGINX_VALIDATE_PATH" || true
+	fi
+done
+
+unset NGINX_VALIDATE_MAX NGINX_VALIDATE_COUNT NGINX_VALIDATE_HOSTS NGINX_VALIDATE_OUTPUT NGINX_VALIDATE_ERROR NGINX_VALIDATE_FILE NGINX_VALIDATE_PATH NGINX_VALIDATE_CANDIDATE
