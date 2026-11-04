@@ -266,7 +266,11 @@ export function DockerLabelsList({ data, onCreate, onOpen }: ListProps) {
 
 interface Props extends InnerModalProps {}
 const DockerLabelsModal = EasyModal.create(({ visible, remove }: Props) => {
-	const { data, isLoading, error, refresh, isRefreshing } = useUpstreamCandidates(true);
+	const { data, isFetching, error, refresh, isRefreshing } = useUpstreamCandidates(true, {
+		// existing_host_id changes as soon as a host is saved: always fetch fresh when the list opens
+		staleTime: 0,
+		refetchOnMount: "always",
+	});
 
 	const create = (prefill: ProxyHostPrefill) => {
 		remove();
@@ -286,9 +290,10 @@ const DockerLabelsModal = EasyModal.create(({ visible, remove }: Props) => {
 				</Modal.Title>
 			</Modal.Header>
 			<Modal.Body>
-				{isLoading ? <Loading noLogo /> : null}
+				{isFetching ? <Loading noLogo /> : null}
 				{error ? <Alert variant="danger">{error.message}</Alert> : null}
-				{data ? <DockerLabelsList data={data} onCreate={create} onOpen={open} /> : null}
+				{/* cached data may be stale (Create where Open is right): wait for the fetch on open */}
+				{data && !isFetching ? <DockerLabelsList data={data} onCreate={create} onOpen={open} /> : null}
 			</Modal.Body>
 			<Modal.Footer>
 				<button
