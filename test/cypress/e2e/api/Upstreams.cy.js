@@ -179,7 +179,9 @@ describe('Upstreams endpoints', () => {
 	});
 
 	it('Should enforce permissions', () => {
-		createUser('upstream-viewer@example.com', {proxy_hosts: 'view'}).then((viewerToken) => {
+		// New users get 'manage' for every section and the permissions PUT only
+		// patches what it is given, so set both sections that grant discovery.
+		createUser('upstream-viewer@example.com', {proxy_hosts: 'view', streams: 'hidden'}).then((viewerToken) => {
 			cy.task('backendApiGet', {
 				token:         viewerToken,
 				path:          '/api/upstreams/candidates',
@@ -207,7 +209,8 @@ describe('Upstreams endpoints', () => {
 			});
 		});
 
-		createUser('upstream-streams@example.com', {streams: 'manage'}).then((streamsToken) => {
+		// Managing streams alone is enough for discovery
+		createUser('upstream-streams@example.com', {proxy_hosts: 'hidden', streams: 'manage'}).then((streamsToken) => {
 			cy.task('backendApiGet', {
 				token: streamsToken,
 				path:  '/api/upstreams/candidates',
@@ -215,6 +218,15 @@ describe('Upstreams endpoints', () => {
 				cy.validateSwaggerSchema('get', 200, '/upstreams/candidates', data);
 				// The admin's proxy host is not visible to this user
 				expect(data.items.filter((item) => item.source === 'history')).to.have.length(0);
+			});
+
+			cy.task('backendApiPost', {
+				token: streamsToken,
+				path:  '/api/upstreams/check',
+				data:  {targets: [{host: 'examplesite', port: 80}]},
+			}).then((data) => {
+				cy.validateSwaggerSchema('post', 200, '/upstreams/check', data);
+				expect(data.results).to.have.length(1);
 			});
 		});
 	});
