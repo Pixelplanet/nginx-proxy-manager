@@ -506,6 +506,52 @@ const internalNginx = {
 	},
 
 	/**
+	 * An NginxConfigError of scope "global" can name another host and include its nginx output. A user who
+	 * can't see that host only gets a generic message. Never throws, redacts when in doubt.
+	 *
+	 * @param   {Object}  access  the request's Access object
+	 * @param   {Error}   err
+	 * @returns {Promise<Error>} err, modified in place
+	 */
+	redactConfigError: async (access, err) => {
+		if (!(err instanceof errs.NginxConfigError) || err.details?.scope !== "global" || !err.details.host_id) {
+			return err;
+		}
+		const { host_type: hostType, host_id: hostId } = err.details;
+		let visible = false;
+		try {
+			const permission = hostType === "stream" ? "streams" : `${hostType}s`;
+			const accessData = await access.can(`${permission}:list`);
+			if (
+				accessData === true ||
+				accessData?.permission_visibility === "all" ||
+				accessData?.roles?.includes("admin")
+			) {
+				visible = true;
+			} else if (HOST_MODELS[hostType]) {
+				const row = await HOST_MODELS[hostType].query().where("id", hostId).first();
+				visible = !!row && row.owner_user_id === access.token.getUserId(1);
+			}
+		} catch {
+			visible = false;
+		}
+		if (!visible) {
+			err.message = "Nginx rejected the configuration of another host. Please ask an administrator to check it.";
+			err.details = Object.assign({}, err.details, {
+				host_type: null,
+				host_id: null,
+				file: null,
+				line: null,
+				location_index: null,
+				location_path: null,
+				nginx_output: null,
+				hint: null,
+			});
+		}
+		return err;
+	},
+
+	/**
 	 * @returns {Promise<{ok: boolean, parsed?: Object}>}
 	 */
 	runTest: async () => {
