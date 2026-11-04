@@ -119,10 +119,12 @@ const internalNginx = {
 
 	/**
 	 * @param   {Error}  err
-	 * @returns {boolean} true when nginx rejected the host itself (or the global config) and the change was not applied
+	 * @returns {boolean} true when configure() did not apply the change: nginx rejected the host itself (or the
+	 *                    global config), or the config could not be rendered. The previous config is still active.
 	 */
 	isHostLevelError: (err) =>
-		err instanceof errs.NginxConfigError && ["host", "global"].includes(err.details?.scope),
+		(err instanceof errs.NginxConfigError && ["host", "global"].includes(err.details?.scope)) ||
+		(err instanceof errs.ConfigurationError && err.configureFailed === true),
 
 	/**
 	 * Writes the config for a host, makes sure nginx accepts it and reloads nginx.
@@ -190,7 +192,10 @@ const internalNginx = {
 				configText = await internalNginx.generateConfig(hostType, host, { locationStates: states });
 			} catch (err) {
 				internalNginx.restoreConfig(filename, previous);
-				throw err instanceof errs.ConfigurationError ? err : new errs.ConfigurationError(err.message, err);
+				const error = err instanceof errs.ConfigurationError ? err : new errs.ConfigurationError(err.message, err);
+				// the change was not applied, see isHostLevelError()
+				error.configureFailed = true;
+				throw error;
 			}
 			internalNginx.deleteFile(`${filename}.err`);
 
