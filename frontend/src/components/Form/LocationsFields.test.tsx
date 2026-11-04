@@ -5,13 +5,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanLocations, isBlankLocation, LocationsFields, statusForRow, validateLocations } from "./LocationsFields";
 
 const { checkState } = vi.hoisted(() => ({
-	checkState: { result: null as UpstreamCheckResult | null, calls: [] as any[] },
+	checkState: { result: null as UpstreamCheckResult | null, calls: [] as any[], candidates: undefined as any },
 }));
 
 vi.mock("src/context", () => ({ useLocaleState: () => ({ locale: "en" }) }));
 vi.mock("src/hooks", () => ({
 	useAccessLists: () => ({ isLoading: false, isError: false, data: [] }),
-	useUpstreamCandidates: () => ({ data: undefined, isFetching: false, refresh: vi.fn(), isRefreshing: false }),
+	useUpstreamCandidates: () => ({
+		data: checkState.candidates,
+		isFetching: false,
+		refresh: vi.fn(),
+		isRefreshing: false,
+	}),
 	useUpstreamCheck: (input: any, enabled: boolean) => {
 		checkState.calls.push({ input, enabled });
 		return { result: enabled ? checkState.result : null, isChecking: false };
@@ -97,6 +102,7 @@ describe("LocationsFields", () => {
 	beforeEach(() => {
 		checkState.result = null;
 		checkState.calls = [];
+		checkState.candidates = undefined;
 	});
 	afterEach(() => cleanup());
 
@@ -126,6 +132,37 @@ describe("LocationsFields", () => {
 		expect(screen.getByTestId("location-card-0")).toHaveTextContent("Disabled");
 		fireEvent.click(toggle);
 		expect(formValues()[0].enabled).toBe(true);
+	});
+
+	it("a picked candidate fills in the port only while the user hasn't changed it", () => {
+		checkState.candidates = {
+			providers: {},
+			items: [
+				{ host: "svc", label: "svc", source: "docker", ports: [3000], hintPort: 3000, hintScheme: null },
+				{ host: "other", label: "other", source: "docker", ports: [4000], hintPort: 4000, hintScheme: null },
+			],
+			generatedAt: "2026-11-04T10:00:00Z",
+		};
+		renderFields([loc({ path: "/a", forwardHost: "", forwardPort: 80 })]);
+		fireEvent.click(screen.getByText("/a"));
+		const port = screen.getByPlaceholderText("eg: 8081") as HTMLInputElement;
+		const host = document.querySelector("[id^=location-forwardHost-]") as HTMLInputElement;
+		const pick = (name: string) => {
+			fireEvent.focus(host);
+			fireEvent.keyDown(host, { key: "ArrowDown", code: "ArrowDown" });
+			fireEvent.click(screen.getByText(name));
+		};
+		// untouched port: filled in, and a later pick may replace what it filled in
+		pick("svc");
+		expect(host.value).toBe("svc");
+		expect(port.value).toBe("3000");
+		pick("other");
+		expect(port.value).toBe("4000");
+		// a port the user typed stays
+		fireEvent.change(port, { target: { value: "8443" } });
+		pick("svc");
+		expect(host.value).toBe("svc");
+		expect(port.value).toBe("8443");
 	});
 
 	it("blocks submit with invalid rows, expands them and shows the errors", async () => {

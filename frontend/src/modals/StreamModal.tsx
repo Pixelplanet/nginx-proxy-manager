@@ -12,6 +12,7 @@ import {
 	SSLCertificateField,
 	SSLOptionsFields,
 	UpstreamField,
+	usePrefillGuard,
 } from "src/components";
 import { useSetStream, useStream } from "src/hooks";
 import { intl, T } from "src/locale";
@@ -31,6 +32,7 @@ const StreamModal = EasyModal.create(({ id, visible, remove }: Props) => {
 	const { mutate: setStream } = useSetStream();
 	const [errorMsg, setErrorMsg] = useState<ReactNode | null>(null);
 	const [isSubmitting, setIsSubmitting] = useState(false);
+	const guardPrefill = usePrefillGuard();
 	// Set when a save went through but nginx couldn't load the host
 	const [savedMeta, setSavedMeta] = useState<HostMeta | null>(null);
 	// Id of a host created by this modal, so that saving again updates it
@@ -205,7 +207,15 @@ const StreamModal = EasyModal.create(({ id, visible, remove }: Props) => {
 																		onBlur={() =>
 																			form.setFieldTouched("forwardingHost", true)
 																		}
-																		onSelectCandidate={(prefill) => {
+																		onSelectCandidate={(picked) => {
+																			const prefill = guardPrefill(
+																				picked,
+																				{ port: form.values.forwardingPort },
+																				{
+																					port: form.initialValues
+																						.forwardingPort,
+																				},
+																			);
 																			if (prefill.port) {
 																				form.setFieldValue(
 																					"forwardingPort",

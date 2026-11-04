@@ -21,6 +21,7 @@ import {
 	SSLOptionsFields,
 	UpstreamCheckBadge,
 	UpstreamField,
+	usePrefillGuard,
 } from "src/components";
 import { useProxyHost, useSetProxyHost, useUpstreamCheck, useUser } from "src/hooks";
 import { intl, T } from "src/locale";
@@ -90,6 +91,7 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 	// Id of a host created by this modal, so that saving again updates it
 	const [savedId, setSavedId] = useState<number | null>(null);
 	const [highlightIndex, setHighlightIndex] = useState<number | null>(null);
+	const guardPrefill = usePrefillGuard();
 
 	const showTab = useCallback((tab: TabId) => setActiveTab(tab), []);
 	const tabLink = (tab: TabId) => ({
@@ -303,7 +305,20 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 																		onBlur={() =>
 																			form.setFieldTouched("forwardHost", true)
 																		}
-																		onSelectCandidate={(prefill) => {
+																		onSelectCandidate={(picked) => {
+																			const prefill = guardPrefill(
+																				picked,
+																				{
+																					port: form.values.forwardPort,
+																					scheme: form.values.forwardScheme,
+																				},
+																				{
+																					port: form.initialValues
+																						.forwardPort,
+																					scheme: form.initialValues
+																						.forwardScheme,
+																				},
+																			);
 																			if (prefill.port) {
 																				form.setFieldValue(
 																					"forwardPort",

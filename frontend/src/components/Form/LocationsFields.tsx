@@ -19,7 +19,7 @@ import { normaliseLocationPath } from "src/modules/HostStatus";
 import { LocationStatusBadge, UpstreamCheckBadge } from "../StatusBadges";
 import { AccessField } from "./AccessField";
 import styles from "./LocationsFields.module.css";
-import { UpstreamField } from "./UpstreamField";
+import { UpstreamField, usePrefillGuard } from "./UpstreamField";
 
 // Below this many locations the list is short enough to scan by eye, and the
 // filter would only take up space.
@@ -372,6 +372,10 @@ function LocationCard({
 }: CardProps) {
 	const item = row.value;
 	const isEnabled = item.enabled !== false;
+	// Port and scheme as they were when the row was loaded or added; a picked
+	// candidate only replaces them while the user hasn't changed them.
+	const [initial] = useState(() => ({ port: item.forwardPort, scheme: item.forwardScheme }));
+	const guardPrefill = usePrefillGuard();
 	const bodyId = `location-body-${row.id}`;
 
 	// Check reachability once the card has been opened, and keep showing the
@@ -547,7 +551,12 @@ function LocationCard({
 									isInvalid={!!hostError}
 									onChange={(forwardHost) => onChanges({ forwardHost })}
 									onBlur={() => onTouched("forwardHost")}
-									onSelectCandidate={(prefill) => {
+									onSelectCandidate={(picked) => {
+										const prefill = guardPrefill(
+											picked,
+											{ port: item.forwardPort, scheme: item.forwardScheme },
+											initial,
+										);
 										const changes: Partial<ProxyLocation> = {};
 										if (prefill.port) changes.forwardPort = prefill.port;
 										if (prefill.scheme) changes.forwardScheme = prefill.scheme;
