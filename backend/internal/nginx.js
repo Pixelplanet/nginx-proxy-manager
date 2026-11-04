@@ -7,6 +7,7 @@ import errs from "../lib/error.js";
 import {
 	attributeToHostFile,
 	blameOtherHost,
+	blameTests,
 	blameUnattributed,
 	causedByProtected,
 	regenerateOrDisable,
@@ -235,21 +236,28 @@ const internalNginx = {
 			}
 
 			let blame = null;
+			const tests = blameTests({
+				own: filename,
+				protect: opts.protect,
+				testWithoutOwn: () => internalNginx.testWithout(filename, configText),
+				testAside: (files) => internalNginx.testAside(files),
+			});
 			if (parseManagedFile(parsed.file)) {
 				// nginx names another host's file. That host is only repaired or taken offline when its file
 				// fails on its own, without this host's new config: an error can show up in a file that is
 				// fine by itself, eg. a duplicate `listen ... default_server` is reported at the second
 				// definition, or this host's advanced config includes the other host's file.
-				blame = await blameOtherHost(parsed, () => internalNginx.testWithout(filename, configText));
+				// In a nested configure the host being saved is taken out as well, see blameTests().
+				blame = await blameOtherHost(parsed, tests.testWithout);
 			} else if (!parsed.file) {
 				// No file named, eg. another host's log file can't be opened. Only a host whose file mentions
 				// the path AND whose removal makes the error go away is blamed, see lib/nginx-blame.js
 				blame = await blameUnattributed(parsed, {
 					own: { file: filename },
 					listFiles: internalNginx.listManagedFiles,
-					testWithout: () => internalNginx.testWithout(filename, configText),
-					testWithoutCandidate: (file) => internalNginx.testAside([filename, file]),
-					testWithoutCandidates: (files) => internalNginx.testAside([filename, ...files]),
+					testWithout: tests.testWithout,
+					testWithoutCandidate: tests.testWithoutCandidate,
+					testWithoutCandidates: tests.testWithoutCandidates,
 				});
 			}
 			if (blame) {

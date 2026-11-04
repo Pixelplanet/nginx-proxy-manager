@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
 	attributeToHostFile,
 	blameOtherHost,
+	blameTests,
 	blameUnattributed,
 	causedByProtected,
 	errorPaths,
@@ -374,5 +375,69 @@ describe("blameOtherHost", () => {
 		const alone = { file: "/data/nginx/custom/http.conf", line: 1, message: "x" };
 		const out = await blameOtherHost(parsed, async () => ({ ok: false, parsed: alone }));
 		assert.equal(out.action, "global");
+	});
+});
+
+describe("blameTests", () => {
+	const A = "/data/nginx/proxy_host/1.conf";
+	const B = "/data/nginx/proxy_host/2.conf";
+	const C = "/data/nginx/proxy_host/3.conf";
+	// nginx -t over A, B, C where B and C conflict (duplicate listen options), reported in C
+	const nginx = (aside) => {
+		if (!aside.includes(B) && !aside.includes(C)) {
+			return { ok: false, parsed: { file: C, line: 1, message: "duplicate listen options", output: "" } };
+		}
+		return { ok: true };
+	};
+
+	it("takes the saved host out as well in a nested configure, so a third host isn't blamed", async () => {
+		// A is regenerated while B (the host being saved) keeps its new config
+		const calls = [];
+		const tests = blameTests({
+			own: A,
+			protect: [B],
+			testWithoutOwn: async () => nginx([A]),
+			testAside: async (files) => {
+				calls.push(files);
+				return nginx(files);
+			},
+		});
+		const parsed = { file: C, line: 1, message: "duplicate listen options", output: "" };
+		const blame = await blameOtherHost(parsed, tests.testWithout);
+		assert.equal(blame.action, "conflict");
+		assert.deepEqual(calls, [[A, B]]);
+		// and causedByProtected() then turns it into a conflict of the saved host
+		assert.equal(
+			await causedByProtected({ parsed, protect: [B], testWithoutProtected: async () => nginx([B]) }),
+			true,
+		);
+		assert.deepEqual(await tests.testWithoutCandidate(C), { ok: true });
+		assert.deepEqual(calls.at(-1), [A, B, C]);
+		assert.deepEqual(calls.length, 2);
+		await tests.testWithoutCandidates([C]);
+		assert.deepEqual(calls.at(-1), [A, B, C]);
+	});
+
+	it("only takes the own file out outside a nested configure", async () => {
+		let own = 0;
+		const tests = blameTests({
+			own: B,
+			testWithoutOwn: async () => {
+				own++;
+				return nginx([B]);
+			},
+			testAside: async (files) => nginx(files),
+		});
+		const blame = await blameOtherHost({ file: C, line: 1, message: "", output: "" }, tests.testWithout);
+		assert.equal(blame.action, "conflict");
+		assert.equal(own, 1);
+		const without = blameTests({
+			own: A,
+			protect: [],
+			testWithoutOwn: async () => nginx([A]),
+			testAside: async (files) => nginx(files),
+		});
+		// without the protect files, C still fails next to B: C is the one to heal
+		assert.equal((await blameOtherHost({ file: C }, without.testWithout)).action, "heal");
 	});
 });

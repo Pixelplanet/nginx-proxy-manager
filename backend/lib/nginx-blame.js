@@ -207,9 +207,34 @@ const regenerateOrDisable = async ({ enabled, depth, regenerate, disable, isAbor
 	return "disabled";
 };
 
+/**
+ * The test functions the blame helpers above get while a host is configured.
+ *
+ * In a nested configure (another host is regenerated while `protect`, the host being saved, keeps its new
+ * config, see healOtherHost()) the protected files are moved aside in every blame test as well. Otherwise a
+ * conflict between the saved host and a third host would look like that third host failing by itself, and
+ * the third host would be disabled for the saved host's change.
+ *
+ * @param   {Object}   opts
+ * @param   {String}   opts.own             config file of the host being configured
+ * @param   {String[]} [opts.protect]       config files of the host(s) being saved (nested configure only)
+ * @param   {Function} opts.testWithoutOwn  async () => {ok, parsed}: nginx -t without own
+ * @param   {Function} opts.testAside       async (files) => {ok, parsed}: nginx -t without the files
+ * @returns {{testWithout: Function, testWithoutCandidate: Function, testWithoutCandidates: Function}}
+ */
+const blameTests = ({ own, protect = [], testWithoutOwn, testAside }) => {
+	const aside = [own, ...protect.filter((file) => file !== own)];
+	return {
+		testWithout: aside.length > 1 ? () => testAside(aside) : testWithoutOwn,
+		testWithoutCandidate: (file) => testAside([...aside, file]),
+		testWithoutCandidates: (files) => testAside([...aside, ...files]),
+	};
+};
+
 export {
 	attributeToHostFile,
 	blameOtherHost,
+	blameTests,
 	blameUnattributed,
 	causedByProtected,
 	errorPaths,

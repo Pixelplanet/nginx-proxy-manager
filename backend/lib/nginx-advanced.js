@@ -15,13 +15,19 @@
  * - include of anything in a generated config dir
  * - for both: paths through /proc/ or /dev/fd/ (`/proc/self/root/data/nginx/...`), and wildcards (glob
  *   characters in include, a $variable in access_log) whose fixed part could still reach one of the above
+ * - access_log paths that end with a $variable (no literal `.xyz` tail after it) when the fixed part is in
+ *   /data/nginx/ or /etc/nginx/ (or a prefix of either) or ends with `/`: variables are filled in from the
+ *   request and nginx doesn't sanitise `..` or `/` in them, so eg. `access_log /data/nginx/custom/$http_x;`
+ *   lets any client pick the file. `/data/logs/$host.log` is fine.
  *
  * Allowed, notably: relative log paths (they resolve below the nginx prefix /etc/nginx/nginx/), logs in
  * /data/logs/ or /data/nginx/custom/*.log, `off`, stderr, syslog:, `root`, `alias` and include of the user's
  * own snippets (/data/nginx/custom/*.conf, /snippets/*.conf, conf.d/include/*.conf).
  *
  * Paths are read with the same tokenizer as nginx (lib/nginx-tokenize.js), so quotes or `#` in the middle of
- * a token don't hide a directive.
+ * a token don't hide a directive. The exception are *_by_lua_block bodies, which ngx_lua reads with its own
+ * Lua aware reader: a quote inside a Lua comment there can hide the directives that follow the block from
+ * this check. Lua code can open any file anyway, see above.
  *
  * This module has no database imports so it can be unit tested.
  */
@@ -184,6 +190,17 @@ const isForbiddenLogTarget = (target, directive) => {
 	const absolute = fixed.startsWith("/") ? fixed : `${LOG_PREFIX}${fixed}`;
 	const resolved = posix.normalize(absolute);
 	if (isIndirect(resolved) || inManagedDir(resolved)) {
+		return true;
+	}
+	// Variables are filled in from the request and nginx doesn't sanitise `/` or `..` in them: when the path
+	// ends with a variable, a client could pick any file name below a directory nginx reads configuration from
+	// (or, with the variable starting a path segment, any file at all). A literal tail with a dot after the
+	// last variable (`$host.log`) can't complete a config file name, see CONFIG_SUFFIX.
+	const tail = target.replace(/^.*\$(\{\w*\}|\w*)/s, "");
+	const underConfigDir = ["/data/nginx/", CONF_PREFIX].some(
+		(dir) => resolved.startsWith(dir) || `${resolved}/` === dir || dir.startsWith(resolved),
+	);
+	if ((underConfigDir || fixed.endsWith("/")) && !tail.includes(".")) {
 		return true;
 	}
 	// the variable could complete the fixed part to a generated config dir or conf.d
