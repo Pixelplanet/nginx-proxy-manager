@@ -44,7 +44,7 @@ export const cleanLocations = (items?: ProxyLocation[]) => (items || []).filter(
 
 // Characters that would break out of the generated nginx directive, the same
 // set the backend rejects. A host that is a single nginx variable is allowed.
-// Like the backend, only the host part of `host/path` is checked.
+// Like the backend, the host part of `host/path` is checked on its own.
 const INVALID_HOST_CHARS = /[;{}'"`\\$#]/;
 
 export const validateLocations = (items: ProxyLocation[] = []): (LocationErrors | undefined)[] => {
@@ -69,11 +69,12 @@ export const validateLocations = (items: ProxyLocation[] = []): (LocationErrors 
 			errors.path = intl.formatMessage({ id: "location.error.duplicate-path" }, { path: other.path });
 		}
 
-		const host = `${item.forwardHost ?? ""}`;
+		// The server trims the value and splits it at the first "/": `host/path`
+		const host = `${item.forwardHost ?? ""}`.trim();
 		const hostPart = locationHostPart(host);
-		if (!host.trim()) {
+		if (!hostPart) {
 			errors.forwardHost = intl.formatMessage({ id: "error.required" });
-		} else if (/\s/.test(host.trim())) {
+		} else if (/\s/.test(host)) {
 			errors.forwardHost = intl.formatMessage({ id: "location.error.host-whitespace" });
 		} else if (!isVariableHost(hostPart) && INVALID_HOST_CHARS.test(hostPart)) {
 			errors.forwardHost = intl.formatMessage({ id: "location.error.host-invalid" });

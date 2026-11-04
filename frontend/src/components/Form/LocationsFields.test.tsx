@@ -76,6 +76,13 @@ describe("validateLocations", () => {
 		expect(validateLocations([loc({ forwardHost: " app/sub/ " })])[0]).toBeUndefined();
 	});
 
+	it("requires a host part, not just a path", () => {
+		// the server would store an empty forward host and quarantine the location
+		for (const forwardHost of ["/api", " /x", "/", "  "]) {
+			expect(validateLocations([loc({ forwardHost })])[0]?.forwardHost).toMatch(/required/);
+		}
+	});
+
 	it("allows a forward host that is a single nginx variable", () => {
 		expect(validateLocations([loc({ forwardHost: "$backend" })])[0]).toBeUndefined();
 		expect(validateLocations([loc({ forwardHost: " $up_2 " })])[0]).toBeUndefined();
