@@ -19,7 +19,7 @@ import {
 	SaveWarning,
 	SSLCertificateField,
 	SSLOptionsFields,
-	UpstreamCheckBadge,
+	UpstreamCheckHint,
 	UpstreamField,
 	usePrefillGuard,
 } from "src/components";
@@ -62,14 +62,14 @@ function TabErrorSwitcher({ onTab }: { onTab: (tab: TabId) => void }) {
 }
 
 // Live reachability of the Details tab's forward host
-function ForwardCheckBadge() {
+function ForwardCheckHint() {
 	const { values } = useFormikContext<any>();
 	const { result, isChecking } = useUpstreamCheck({
 		host: values.forwardHost,
 		port: values.forwardPort,
 		scheme: values.forwardScheme,
 	});
-	return <UpstreamCheckBadge id="forwardHost-check" result={result} isChecking={isChecking} />;
+	return <UpstreamCheckHint id="forwardHost-check" result={result} isChecking={isChecking} />;
 }
 
 const showProxyHostModal = (id: number | "new") => {
@@ -280,14 +280,8 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 														<Field name="forwardHost" validate={validateString(1, 255)}>
 															{({ field, form }: any) => (
 																<div className="mb-3">
-																	<label
-																		className="form-label d-flex align-items-center"
-																		htmlFor="forwardHost"
-																	>
+																	<label className="form-label" htmlFor="forwardHost">
 																		<T id="proxy-host.forward-host" />
-																		<span className="ms-auto">
-																			<ForwardCheckBadge />
-																		</span>
 																	</label>
 																	<UpstreamField
 																		id="forwardHost"
@@ -341,6 +335,7 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 																				: null}
 																		</div>
 																	) : null}
+																	<ForwardCheckHint />
 																</div>
 															)}
 														</Field>
