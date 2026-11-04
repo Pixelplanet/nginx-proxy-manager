@@ -19,8 +19,9 @@ const internalRedirectionHost = {
 	 * @returns {Promise}
 	 */
 	create: (access, data) => {
-		let thisData = data || {};
+		let thisData = internalHost.sanitiseInput(data || {});
 		const createCertificate = thisData.certificate_id === "new";
+		let createdId = null;
 
 		if (createCertificate) {
 			delete thisData.certificate_id;
@@ -60,6 +61,7 @@ const internalRedirectionHost = {
 				return redirectionHostModel.query().insertAndFetch(thisData).then(utils.omitRow(omissions()));
 			})
 			.then((row) => {
+				createdId = row.id;
 				if (createCertificate) {
 					return internalCertificate
 						.createQuickCertificate(access, thisData)
@@ -85,7 +87,8 @@ const internalRedirectionHost = {
 			})
 			.then((row) => {
 				// Configure nginx
-				return internalNginx.configure(redirectionHostModel, "redirection_host", row).then(() => {
+				return internalNginx.configure(redirectionHostModel, "redirection_host", row).then((newMeta) => {
+					row.meta = newMeta;
 					return row;
 				});
 			})
@@ -103,6 +106,13 @@ const internalRedirectionHost = {
 					.then(() => {
 						return row;
 					});
+			})
+			.catch(async (err) => {
+				// nginx rejected the new host: don't keep a host that was never active
+				if (createdId && internalNginx.isHostLevelError(err)) {
+					await redirectionHostModel.query().where("id", createdId).patch({ is_deleted: 1 });
+				}
+				throw err;
 			});
 	},
 
@@ -113,7 +123,7 @@ const internalRedirectionHost = {
 	 * @return {Promise}
 	 */
 	update: (access, data) => {
-		let thisData = data || {};
+		let thisData = internalHost.sanitiseInput(data || {});
 		const createCertificate = thisData.certificate_id === "new";
 
 		if (createCertificate) {
@@ -183,39 +193,27 @@ const internalRedirectionHost = {
 
 				thisData = internalHost.cleanSslHstsData(thisData, row);
 
-				return redirectionHostModel
-					.query()
-					.where({ id: thisData.id })
-					.patch(thisData)
-					.then((saved_row) => {
-						// Add to audit log
-						return internalAuditLog
-							.add(access, {
-								action: "updated",
-								object_type: "redirection-host",
-								object_id: row.id,
-								meta: thisData,
-							})
-							.then(() => {
-								return _.omit(saved_row, omissions());
-							});
-					});
+				return internalHost.updateAndConfigure({
+					model: redirectionHostModel,
+					hostType: "redirection_host",
+					id: thisData.id,
+					patch: thisData,
+					fetch: () =>
+						internalRedirectionHost.get(access, {
+							id: thisData.id,
+							expand: ["owner", "certificate"],
+						}),
+					audit: () =>
+						internalAuditLog.add(access, {
+							action: "updated",
+							object_type: "redirection-host",
+							object_id: thisData.id,
+							meta: thisData,
+						}),
+				});
 			})
-			.then(() => {
-				return internalRedirectionHost
-					.get(access, {
-						id: thisData.id,
-						expand: ["owner", "certificate"],
-					})
-					.then((row) => {
-						// Configure nginx
-						return internalNginx
-							.configure(redirectionHostModel, "redirection_host", row)
-							.then((new_meta) => {
-								row.meta = new_meta;
-								return _.omit(internalHost.cleanRowCertificateMeta(row), omissions());
-							});
-					});
+			.then((row) => {
+				return _.omit(internalHost.cleanRowCertificateMeta(row), omissions());
 			});
 	},
 
@@ -289,9 +287,7 @@ const internalRedirectionHost = {
 					})
 					.then(() => {
 						// Delete Nginx Config
-						return internalNginx.deleteConfig("redirection_host", row).then(() => {
-							return internalNginx.reload();
-						});
+						return internalNginx.removeConfigAndReload("redirection_host", row);
 					})
 					.then(() => {
 						// Add to audit log
@@ -342,7 +338,13 @@ const internalRedirectionHost = {
 					})
 					.then(() => {
 						// Configure nginx
-						return internalNginx.configure(redirectionHostModel, "redirection_host", row);
+						return internalNginx
+							.configure(redirectionHostModel, "redirection_host", row)
+							.catch(async (err) => {
+								// The host could not be activated, keep it disabled
+								await redirectionHostModel.query().where("id", row.id).patch({ enabled: 0 });
+								throw err;
+							});
 					})
 					.then(() => {
 						// Add to audit log
@@ -390,9 +392,7 @@ const internalRedirectionHost = {
 					})
 					.then(() => {
 						// Delete Nginx Config
-						return internalNginx.deleteConfig("redirection_host", row).then(() => {
-							return internalNginx.reload();
-						});
+						return internalNginx.removeConfigAndReload("redirection_host", row);
 					})
 					.then(() => {
 						// Add to audit log
