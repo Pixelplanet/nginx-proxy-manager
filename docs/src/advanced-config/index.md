@@ -192,6 +192,27 @@ You can add your custom configuration snippet files at `/data/nginx/custom` as f
 Every file is optional.
 
 
+## Regenerating all host configs
+
+NPM writes one nginx config file per host into `/data/nginx/`. After an upgrade, after restoring a backup, or when
+files there were edited or lost, you can rewrite all of them from the database: **Settings > Nginx Configuration >
+Regenerate all host configs** (admin only).
+
+Every enabled proxy host, redirection host, 404 host and stream is regenerated and tested with nginx, then nginx is
+reloaded once. Working hosts stay online, there is no downtime. A host that nginx rejects is taken offline instead of
+blocking the others, and broken custom locations are disabled, just as when you save the host. Afterwards the page
+lists the hosts that went offline, the hosts that could not be regenerated (they keep their previous config, eg.
+because a certificate file is missing) and the hosts with custom locations that don't work. Click a host to open it.
+
+The same is available from the API (`POST /api/nginx/regenerate`, optional body `{"host_types": ["proxy_host"]}`) and
+from the command line inside the container:
+
+```bash
+docker exec -it <container> /app/scripts/regenerate-config --yes
+```
+
+Only one regeneration runs at a time, a second request gets `409 Conflict`. Each run is recorded in the audit log.
+
 ## X-FRAME-OPTIONS Header
 
 You can configure the [`X-FRAME-OPTIONS`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Frame-Options) header
