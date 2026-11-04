@@ -6,11 +6,13 @@
 	"properties": {
 		"status": {
 			"type": "string",
+			"example": "ok",
 			"enum": ["ok", "disabled", "unavailable"]
 		},
 		"message": {
 			"type": ["string", "null"],
-			"description": "Why the provider is disabled or unavailable, or a warning"
+			"description": "Why the provider is disabled or unavailable, or a warning",
+			"example": null
 		}
 	}
 }

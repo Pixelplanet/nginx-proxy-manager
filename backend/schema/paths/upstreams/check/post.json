@@ -20,6 +20,13 @@
 					"properties": {
 						"targets": {
 							"type": "array",
+							"example": [
+								{
+									"host": "app",
+									"port": 8080,
+									"scheme": "http"
+								}
+							],
 							"minItems": 1,
 							"maxItems": 20,
 							"items": {
@@ -94,6 +101,20 @@
 						"properties": {
 							"results": {
 								"type": "array",
+								"example": [
+									{
+										"host": "app",
+										"port": 8080,
+										"scheme": "http",
+										"ok": true,
+										"code": "ok",
+										"message": "app:8080 is reachable (1.2 ms).",
+										"addresses": ["172.18.0.5"],
+										"resolver_ok": true,
+										"system_ok": true,
+										"ms": 1.2
+									}
+								],
 								"items": {
 									"$ref": "../../../components/upstream-check-result.json"
 								}
