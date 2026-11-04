@@ -109,6 +109,28 @@ export function usePrefillGuard() {
 	);
 }
 
+/**
+ * Home / End in the host input: moves the caret to the start / end, or with
+ * Shift extends the selection from its anchor, as the browser would.
+ */
+export const moveCaret = (input: HTMLInputElement | null, toStart: boolean, extend: boolean) => {
+	if (!input || typeof input.setSelectionRange !== "function") return;
+	const len = input.value.length;
+	const target = toStart ? 0 : len;
+	if (!extend) {
+		input.setSelectionRange(target, target);
+		return;
+	}
+	const start = input.selectionStart ?? 0;
+	const end = input.selectionEnd ?? start;
+	const anchor = input.selectionDirection === "backward" ? end : start;
+	if (target < anchor) {
+		input.setSelectionRange(target, anchor, "backward");
+	} else {
+		input.setSelectionRange(anchor, target, "forward");
+	}
+};
+
 // Whether the user moved through the options with the keyboard since the last
 // keystroke. Only then is an option highlighted and does Enter pick it;
 // react-select would otherwise focus the first option and Enter (or Tab) would
@@ -305,8 +327,14 @@ export function UpstreamField({
 				break;
 			case "Home":
 			case "End":
-				// react-select moves the focus to the first / last option
-				if (menuIsOpen) setNavigated(true);
+				// Caret keys in a text field, not option navigation. With the menu open
+				// react-select would focus the first / last option (and block the caret),
+				// so a later Enter would replace the typed text. preventDefault makes it
+				// skip that; the caret is then moved here instead.
+				if (menuIsOpen) {
+					e.preventDefault();
+					moveCaret(e.target as HTMLInputElement, e.key === "Home", e.shiftKey);
+				}
 				break;
 			case "Enter":
 				// Without an option chosen by keyboard, Enter keeps the typed text and

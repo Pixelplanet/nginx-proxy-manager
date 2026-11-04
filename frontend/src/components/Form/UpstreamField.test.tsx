@@ -296,6 +296,54 @@ describe("UpstreamField keyboard", () => {
 		expect(onSelect).not.toHaveBeenCalled();
 	});
 
+	const homeData: UpstreamCandidates = {
+		...prefixData,
+		items: [
+			candidate({ host: "myhost-db", label: "myhost-db", source: "docker", ports: [5432] }),
+			candidate({ host: "myhost-web", label: "myhost-web", source: "docker", ports: [80] }),
+		],
+	};
+
+	for (const key of ["Home", "End"]) {
+		it(`${key} with the menu open moves the caret and doesn't highlight an option`, () => {
+			const onSelect = vi.fn();
+			render(<Harness candidates={homeData} onSelectCandidate={onSelect} />);
+			const input = typeInto("myhost");
+			input.setSelectionRange(3, 3);
+			expect(document.querySelector(".react-select__menu")).not.toBeNull();
+			fireEvent.keyDown(input, { key, code: key });
+			expect(focusedOption()).toBeNull();
+			const at = key === "Home" ? 0 : 6;
+			expect([input.selectionStart, input.selectionEnd]).toEqual([at, at]);
+			fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+			expect(screen.getByTestId("value")).toHaveTextContent(/^myhost$/);
+			expect(input.value).toBe("myhost");
+			expect(onSelect).not.toHaveBeenCalled();
+		});
+	}
+
+	it("Shift+Home / Shift+End select from the caret", () => {
+		render(<Harness candidates={homeData} />);
+		const input = typeInto("myhost");
+		input.setSelectionRange(2, 2);
+		fireEvent.keyDown(input, { key: "Home", code: "Home", shiftKey: true });
+		expect([input.selectionStart, input.selectionEnd, input.selectionDirection]).toEqual([0, 2, "backward"]);
+		fireEvent.keyDown(input, { key: "End", code: "End", shiftKey: true });
+		expect([input.selectionStart, input.selectionEnd, input.selectionDirection]).toEqual([2, 6, "forward"]);
+		expect(focusedOption()).toBeNull();
+	});
+
+	it("Home after navigating keeps the highlighted option", () => {
+		const onSelect = vi.fn();
+		render(<Harness candidates={homeData} onSelectCandidate={onSelect} />);
+		const input = typeInto("myhost");
+		fireEvent.keyDown(input, { key: "ArrowDown", code: "ArrowDown" });
+		fireEvent.keyDown(input, { key: "ArrowDown", code: "ArrowDown" });
+		const highlighted = focusedOption()?.textContent;
+		fireEvent.keyDown(input, { key: "Home", code: "Home" });
+		expect(focusedOption()?.textContent).toBe(highlighted);
+	});
+
 	it("a click on an option still picks it", () => {
 		const onSelect = vi.fn();
 		render(<Harness candidates={prefixData} onSelectCandidate={onSelect} />);
