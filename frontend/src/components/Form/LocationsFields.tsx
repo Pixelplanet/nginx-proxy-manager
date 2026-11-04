@@ -94,6 +94,9 @@ export const statusForRow = (
 ): NginxLocationStatus | undefined => {
 	const s = statuses?.find((st) => st.index === index) ?? statuses?.[index];
 	if (!s) return undefined;
+	// Saved as disabled but switched on again in the form: the server's "disabled"
+	// no longer describes the row
+	if (s.status === "disabled" && item.enabled !== false) return undefined;
 	return normaliseLocationPath(s.path) === normaliseLocationPath(item.path) ? s : undefined;
 };
 

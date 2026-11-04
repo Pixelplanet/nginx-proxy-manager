@@ -96,6 +96,15 @@ describe("validateLocations", () => {
 		expect(statusForRow(statuses, 0, loc({ path: "/a" }))?.status).toBe("quarantined");
 		expect(statusForRow(statuses, 0, loc({ path: "/b" }))).toBeUndefined();
 	});
+
+	it("statusForRow drops a saved 'disabled' once the row is switched on again", () => {
+		const statuses: NginxLocationStatus[] = [
+			{ index: 0, path: "/a", status: "disabled", mode: null, message: null },
+		];
+		expect(statusForRow(statuses, 0, loc({ path: "/a", enabled: false }))?.status).toBe("disabled");
+		expect(statusForRow(statuses, 0, loc({ path: "/a", enabled: true }))).toBeUndefined();
+		expect(statusForRow(statuses, 0, loc({ path: "/a" }))).toBeUndefined();
+	});
 });
 
 describe("LocationsFields", () => {
@@ -132,6 +141,17 @@ describe("LocationsFields", () => {
 		expect(screen.getByTestId("location-card-0")).toHaveTextContent("Disabled");
 		fireEvent.click(toggle);
 		expect(formValues()[0].enabled).toBe(true);
+	});
+
+	it("doesn't keep a saved 'Disabled' badge after the location is switched on", () => {
+		renderFields([loc({ path: "/api", enabled: false })], {
+			statuses: [{ index: 0, path: "/api", status: "disabled", mode: null, message: null }],
+		});
+		const card = screen.getByTestId("location-card-0");
+		expect(card.querySelector("[data-status]")).toHaveAttribute("data-status", "disabled");
+		fireEvent.click(screen.getByLabelText("Enable or disable this location"));
+		expect(card.querySelector("[data-status]")).toBeNull();
+		expect(card).not.toHaveTextContent("Disabled");
 	});
 
 	it("a picked candidate fills in the port only while the user hasn't changed it", () => {
