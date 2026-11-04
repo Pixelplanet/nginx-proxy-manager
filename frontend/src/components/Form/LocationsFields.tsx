@@ -15,11 +15,11 @@ import { useEffect, useRef, useState } from "react";
 import type { NginxLocationStatus, ProxyLocation } from "src/api/backend";
 import { useUpstreamCheck } from "src/hooks";
 import { intl, T } from "src/locale";
-import { normaliseLocationPath } from "src/modules/HostStatus";
-import { LocationStatusBadge, UpstreamCheckBadge } from "../StatusBadges";
+import { isVariableHost, locationDuplicateKey, normaliseLocationPath } from "src/modules/HostStatus";
+import { LocationStatusBadge, UpstreamCheckBadge, VariableHostBadge } from "../StatusBadges";
 import { AccessField } from "./AccessField";
 import styles from "./LocationsFields.module.css";
-import { UpstreamField } from "./UpstreamField";
+import { UpstreamField, usePrefillGuard } from "./UpstreamField";
 
 // Below this many locations the list is short enough to scan by eye, and the
 // filter would only take up space.
@@ -42,25 +42,30 @@ export const isBlankLocation = (item: ProxyLocation) =>
 /** The locations to send to the API: blank rows removed, nothing else changed */
 export const cleanLocations = (items?: ProxyLocation[]) => (items || []).filter((l) => !isBlankLocation(l));
 
-const INVALID_HOST_CHARS = /[;{}'"`]/;
+// Characters that would break out of the generated nginx directive, the same
+// set the backend rejects. A host that is a single nginx variable is allowed.
+const INVALID_HOST_CHARS = /[;{}'"`\\$#]/;
 
 export const validateLocations = (items: ProxyLocation[] = []): (LocationErrors | undefined)[] => {
-	const counts = new Map<string, number>();
-	items.forEach((item) => {
+	// Locations nginx would reject as duplicates, by key: index and path of each
+	const byKey = new Map<string, { index: number; path: string }[]>();
+	items.forEach((item, index) => {
 		if (isBlankLocation(item)) return;
-		const p = normaliseLocationPath(item.path);
-		if (p) counts.set(p, (counts.get(p) || 0) + 1);
+		const key = locationDuplicateKey(item.path);
+		if (key) byKey.set(key, [...(byKey.get(key) || []), { index, path: normaliseLocationPath(item.path) }]);
 	});
 
-	return items.map((item) => {
+	return items.map((item, index) => {
 		if (isBlankLocation(item)) return undefined;
 		const errors: LocationErrors = {};
 
 		const path = normaliseLocationPath(item.path);
+		const key = path ? locationDuplicateKey(item.path) : null;
+		const other = key ? byKey.get(key)?.find((d) => d.index !== index) : undefined;
 		if (!path) {
 			errors.path = intl.formatMessage({ id: "error.required" });
-		} else if ((counts.get(path) || 0) > 1) {
-			errors.path = intl.formatMessage({ id: "location.error.duplicate-path" }, { path });
+		} else if (other) {
+			errors.path = intl.formatMessage({ id: "location.error.duplicate-path" }, { path: other.path });
 		}
 
 		const host = `${item.forwardHost ?? ""}`;
@@ -68,7 +73,7 @@ export const validateLocations = (items: ProxyLocation[] = []): (LocationErrors 
 			errors.forwardHost = intl.formatMessage({ id: "error.required" });
 		} else if (/\s/.test(host.trim())) {
 			errors.forwardHost = intl.formatMessage({ id: "location.error.host-whitespace" });
-		} else if (INVALID_HOST_CHARS.test(host)) {
+		} else if (!isVariableHost(host) && INVALID_HOST_CHARS.test(host)) {
 			errors.forwardHost = intl.formatMessage({ id: "location.error.host-invalid" });
 		}
 
@@ -94,6 +99,9 @@ export const statusForRow = (
 ): NginxLocationStatus | undefined => {
 	const s = statuses?.find((st) => st.index === index) ?? statuses?.[index];
 	if (!s) return undefined;
+	// Saved as disabled but switched on again in the form: the server's "disabled"
+	// no longer describes the row
+	if (s.status === "disabled" && item.enabled !== false) return undefined;
 	return normaliseLocationPath(s.path) === normaliseLocationPath(item.path) ? s : undefined;
 };
 
@@ -372,6 +380,10 @@ function LocationCard({
 }: CardProps) {
 	const item = row.value;
 	const isEnabled = item.enabled !== false;
+	// Port and scheme as they were when the row was loaded or added; a picked
+	// candidate only replaces them while the user hasn't changed them.
+	const [initial] = useState(() => ({ port: item.forwardPort, scheme: item.forwardScheme }));
+	const guardPrefill = usePrefillGuard();
 	const bodyId = `location-body-${row.id}`;
 
 	// Check reachability once the card has been opened, and keep showing the
@@ -383,7 +395,7 @@ function LocationCard({
 	const hostError = errorFor("forwardHost");
 	const check = useUpstreamCheck(
 		{ host: item.forwardHost, port: item.forwardPort, scheme: item.forwardScheme },
-		isEnabled && wasOpened && !hostError,
+		isEnabled && wasOpened && !hostError && !isVariableHost(item.forwardHost),
 	);
 
 	const pathError = errorFor("path");
@@ -431,7 +443,9 @@ function LocationCard({
 							message={status.message}
 						/>
 					) : null}
-					{isEnabled ? (
+					{isEnabled && isVariableHost(item.forwardHost) ? (
+						<VariableHostBadge id={`location-check-${row.id}`} />
+					) : isEnabled ? (
 						<UpstreamCheckBadge
 							id={`location-check-${row.id}`}
 							result={check.result}
@@ -547,7 +561,12 @@ function LocationCard({
 									isInvalid={!!hostError}
 									onChange={(forwardHost) => onChanges({ forwardHost })}
 									onBlur={() => onTouched("forwardHost")}
-									onSelectCandidate={(prefill) => {
+									onSelectCandidate={(picked) => {
+										const prefill = guardPrefill(
+											picked,
+											{ port: item.forwardPort, scheme: item.forwardScheme },
+											initial,
+										);
 										const changes: Partial<ProxyLocation> = {};
 										if (prefill.port) changes.forwardPort = prefill.port;
 										if (prefill.scheme) changes.forwardScheme = prefill.scheme;

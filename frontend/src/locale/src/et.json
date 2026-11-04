@@ -537,7 +537,7 @@
 		"defaultMessage": "Selles asukohas on vigu"
 	},
 	"location.error.host-invalid": {
-		"defaultMessage": "Host sisaldab lubamatuid märke"
+		"defaultMessage": "Host sisaldab lubamatuid märke (jutumärgid, ;, sulud, $, # või \\). Üksik nginxi muutuja, näiteks $backend, on lubatud."
 	},
 	"location.error.host-whitespace": {
 		"defaultMessage": "Host ei tohi sisaldada tühikuid"
@@ -913,6 +913,12 @@
 	},
 	"upstream.check.tcp_unreachable": {
 		"defaultMessage": "Host pole kättesaadav"
+	},
+	"upstream.check.variable": {
+		"defaultMessage": "nginxi muutuja"
+	},
+	"upstream.check.variable-tip": {
+		"defaultMessage": "Määratakse täpsemas seadistuses ja nginx lahendab selle iga päringu ajal, seega siin seda ei kontrollita."
 	},
 	"upstream.docker-disabled": {
 		"defaultMessage": "Dockeri tuvastuse lubamiseks määra NPM_DOCKER_DISCOVERY=true ja anna NPM-ile ligipääs Dockeri API-le (vaata dokumentatsiooni)."

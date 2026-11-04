@@ -5,13 +5,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanLocations, isBlankLocation, LocationsFields, statusForRow, validateLocations } from "./LocationsFields";
 
 const { checkState } = vi.hoisted(() => ({
-	checkState: { result: null as UpstreamCheckResult | null, calls: [] as any[] },
+	checkState: { result: null as UpstreamCheckResult | null, calls: [] as any[], candidates: undefined as any },
 }));
 
 vi.mock("src/context", () => ({ useLocaleState: () => ({ locale: "en" }) }));
 vi.mock("src/hooks", () => ({
 	useAccessLists: () => ({ isLoading: false, isError: false, data: [] }),
-	useUpstreamCandidates: () => ({ data: undefined, isFetching: false, refresh: vi.fn(), isRefreshing: false }),
+	useUpstreamCandidates: () => ({
+		data: checkState.candidates,
+		isFetching: false,
+		refresh: vi.fn(),
+		isRefreshing: false,
+	}),
 	useUpstreamCheck: (input: any, enabled: boolean) => {
 		checkState.calls.push({ input, enabled });
 		return { result: enabled ? checkState.result : null, isChecking: false };
@@ -71,6 +76,39 @@ describe("validateLocations", () => {
 		expect(validateLocations([loc({ forwardHost: " app/sub/ " })])[0]).toBeUndefined();
 	});
 
+	it("allows a forward host that is a single nginx variable", () => {
+		expect(validateLocations([loc({ forwardHost: "$backend" })])[0]).toBeUndefined();
+		expect(validateLocations([loc({ forwardHost: " $up_2 " })])[0]).toBeUndefined();
+		// anything else with a $ (or # or \) is rejected like the backend does
+		for (const host of ["$backend:80", "app$x", "$1x", "$" + "{backend}", "a#b", "a\\b"]) {
+			expect(validateLocations([loc({ forwardHost: host })])[0]?.forwardHost).toMatch(/not allowed/);
+		}
+	});
+
+	it("treats a prefix path and the same path with ^~ as duplicates", () => {
+		const errors = validateLocations([loc({ path: "/x" }), loc({ path: "^~ /x" }), loc({ path: "^~/y" })]);
+		expect(errors[0]?.path).toMatch(/already uses \^~ \/x/);
+		expect(errors[1]?.path).toMatch(/already uses \/x/);
+		expect(errors[2]).toBeUndefined();
+		// nginx strips the quotes of a quoted path
+		expect(validateLocations([loc({ path: '"/q"' }), loc({ path: "/q" })])[1]?.path).toMatch(/already uses/);
+	});
+
+	it("allows duplicate regex and named locations, which nginx accepts", () => {
+		expect(
+			validateLocations([
+				loc({ path: "~* \\.php$" }),
+				loc({ path: "~*  \\.php$" }),
+				loc({ path: "~ ^/api" }),
+				loc({ path: "~ ^/api" }),
+				loc({ path: "@fallback" }),
+				loc({ path: "@fallback" }),
+			]),
+		).toEqual([undefined, undefined, undefined, undefined, undefined, undefined]);
+		// an exact location doesn't clash with the prefix location of the same URI
+		expect(validateLocations([loc({ path: "= /x" }), loc({ path: "/x" })])).toEqual([undefined, undefined]);
+	});
+
 	it("flags duplicate paths after normalising the modifier", () => {
 		const errors = validateLocations([loc({ path: "= /x" }), loc({ path: "=/x " }), loc({ path: "/x" })]);
 		expect(errors[0]?.path).toMatch(/already uses = \/x/);
@@ -91,12 +129,22 @@ describe("validateLocations", () => {
 		expect(statusForRow(statuses, 0, loc({ path: "/a" }))?.status).toBe("quarantined");
 		expect(statusForRow(statuses, 0, loc({ path: "/b" }))).toBeUndefined();
 	});
+
+	it("statusForRow drops a saved 'disabled' once the row is switched on again", () => {
+		const statuses: NginxLocationStatus[] = [
+			{ index: 0, path: "/a", status: "disabled", mode: null, message: null },
+		];
+		expect(statusForRow(statuses, 0, loc({ path: "/a", enabled: false }))?.status).toBe("disabled");
+		expect(statusForRow(statuses, 0, loc({ path: "/a", enabled: true }))).toBeUndefined();
+		expect(statusForRow(statuses, 0, loc({ path: "/a" }))).toBeUndefined();
+	});
 });
 
 describe("LocationsFields", () => {
 	beforeEach(() => {
 		checkState.result = null;
 		checkState.calls = [];
+		checkState.candidates = undefined;
 	});
 	afterEach(() => cleanup());
 
@@ -126,6 +174,48 @@ describe("LocationsFields", () => {
 		expect(screen.getByTestId("location-card-0")).toHaveTextContent("Disabled");
 		fireEvent.click(toggle);
 		expect(formValues()[0].enabled).toBe(true);
+	});
+
+	it("doesn't keep a saved 'Disabled' badge after the location is switched on", () => {
+		renderFields([loc({ path: "/api", enabled: false })], {
+			statuses: [{ index: 0, path: "/api", status: "disabled", mode: null, message: null }],
+		});
+		const card = screen.getByTestId("location-card-0");
+		expect(card.querySelector("[data-status]")).toHaveAttribute("data-status", "disabled");
+		fireEvent.click(screen.getByLabelText("Enable or disable this location"));
+		expect(card.querySelector("[data-status]")).toBeNull();
+		expect(card).not.toHaveTextContent("Disabled");
+	});
+
+	it("a picked candidate fills in the port only while the user hasn't changed it", () => {
+		checkState.candidates = {
+			providers: {},
+			items: [
+				{ host: "svc", label: "svc", source: "docker", ports: [3000], hintPort: 3000, hintScheme: null },
+				{ host: "other", label: "other", source: "docker", ports: [4000], hintPort: 4000, hintScheme: null },
+			],
+			generatedAt: "2026-11-04T10:00:00Z",
+		};
+		renderFields([loc({ path: "/a", forwardHost: "", forwardPort: 80 })]);
+		fireEvent.click(screen.getByText("/a"));
+		const port = screen.getByPlaceholderText("eg: 8081") as HTMLInputElement;
+		const host = document.querySelector("[id^=location-forwardHost-]") as HTMLInputElement;
+		const pick = (name: string) => {
+			fireEvent.focus(host);
+			fireEvent.keyDown(host, { key: "ArrowDown", code: "ArrowDown" });
+			fireEvent.click(screen.getByText(name));
+		};
+		// untouched port: filled in, and a later pick may replace what it filled in
+		pick("svc");
+		expect(host.value).toBe("svc");
+		expect(port.value).toBe("3000");
+		pick("other");
+		expect(port.value).toBe("4000");
+		// a port the user typed stays
+		fireEvent.change(port, { target: { value: "8443" } });
+		pick("svc");
+		expect(host.value).toBe("svc");
+		expect(port.value).toBe("8443");
 	});
 
 	it("blocks submit with invalid rows, expands them and shows the errors", async () => {
@@ -186,5 +276,17 @@ describe("LocationsFields", () => {
 			"tcp_refused",
 		);
 		expect(screen.getByTestId("location-card-0")).toHaveTextContent("Connection refused");
+	});
+
+	it("doesn't check a forward host that is an nginx variable and says so", () => {
+		checkState.result = { host: "$backend", port: 80, ok: false, code: "invalid_host", message: "bad" };
+		renderFields([loc({ path: "/a", forwardHost: "$backend" })]);
+		fireEvent.click(screen.getByText("/a"));
+		expect(checkState.calls.every((c) => !c.enabled)).toBe(true);
+		const card = screen.getByTestId("location-card-0");
+		expect(card.querySelector("[data-check]")).toHaveAttribute("data-check", "variable");
+		expect(card).toHaveTextContent("nginx variable");
+		expect(card).not.toHaveTextContent("Invalid host name");
+		expect(card.querySelector(".invalid-feedback")).toBeNull();
 	});
 });

@@ -19,8 +19,10 @@ import {
 	SaveWarning,
 	SSLCertificateField,
 	SSLOptionsFields,
-	UpstreamCheckBadge,
+	UpstreamCheckHint,
+	VariableHostHint,
 	UpstreamField,
+	usePrefillGuard,
 } from "src/components";
 import { useProxyHost, useSetProxyHost, useUpstreamCheck, useUser } from "src/hooks";
 import { intl, T } from "src/locale";
@@ -29,6 +31,7 @@ import {
 	getErrorLocationIndex,
 	getNginxErrorDetails,
 	getProblemLocations,
+	isVariableHost,
 	hasSaveWarnings,
 	stripServerMeta,
 } from "src/modules/HostStatus";
@@ -61,14 +64,17 @@ function TabErrorSwitcher({ onTab }: { onTab: (tab: TabId) => void }) {
 }
 
 // Live reachability of the Details tab's forward host
-function ForwardCheckBadge() {
+function ForwardCheckHint() {
 	const { values } = useFormikContext<any>();
 	const { result, isChecking } = useUpstreamCheck({
 		host: values.forwardHost,
 		port: values.forwardPort,
 		scheme: values.forwardScheme,
 	});
-	return <UpstreamCheckBadge id="forwardHost-check" result={result} isChecking={isChecking} />;
+	if (isVariableHost(values.forwardHost)) {
+		return <VariableHostHint id="forwardHost-check" />;
+	}
+	return <UpstreamCheckHint id="forwardHost-check" result={result} isChecking={isChecking} />;
 }
 
 const showProxyHostModal = (id: number | "new") => {
@@ -90,6 +96,7 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 	// Id of a host created by this modal, so that saving again updates it
 	const [savedId, setSavedId] = useState<number | null>(null);
 	const [highlightIndex, setHighlightIndex] = useState<number | null>(null);
+	const guardPrefill = usePrefillGuard();
 
 	const showTab = useCallback((tab: TabId) => setActiveTab(tab), []);
 	const tabLink = (tab: TabId) => ({
@@ -278,14 +285,8 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 														<Field name="forwardHost" validate={validateString(1, 255)}>
 															{({ field, form }: any) => (
 																<div className="mb-3">
-																	<label
-																		className="form-label d-flex align-items-center"
-																		htmlFor="forwardHost"
-																	>
+																	<label className="form-label" htmlFor="forwardHost">
 																		<T id="proxy-host.forward-host" />
-																		<span className="ms-auto">
-																			<ForwardCheckBadge />
-																		</span>
 																	</label>
 																	<UpstreamField
 																		id="forwardHost"
@@ -303,7 +304,20 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 																		onBlur={() =>
 																			form.setFieldTouched("forwardHost", true)
 																		}
-																		onSelectCandidate={(prefill) => {
+																		onSelectCandidate={(picked) => {
+																			const prefill = guardPrefill(
+																				picked,
+																				{
+																					port: form.values.forwardPort,
+																					scheme: form.values.forwardScheme,
+																				},
+																				{
+																					port: form.initialValues
+																						.forwardPort,
+																					scheme: form.initialValues
+																						.forwardScheme,
+																				},
+																			);
 																			if (prefill.port) {
 																				form.setFieldValue(
 																					"forwardPort",
@@ -326,6 +340,7 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 																				: null}
 																		</div>
 																	) : null}
+																	<ForwardCheckHint />
 																</div>
 															)}
 														</Field>

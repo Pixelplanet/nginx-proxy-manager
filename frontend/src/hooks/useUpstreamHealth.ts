@@ -22,8 +22,11 @@ const useUpstreamHealth = (options = {}) => {
 		queryKey: ["upstream-health"],
 		queryFn: fetchUpstreamHealth,
 		refetchOnWindowFocus: false,
-		refetchInterval: 30 * 1000,
-		staleTime: 29 * 1000,
+		// null means 403/404: asking again every 30s would only produce the same
+		// answer (and an error log line on the server), so stop polling and don't
+		// refetch on mount either until a reload.
+		refetchInterval: (query) => (query.state.data === null ? false : 30 * 1000),
+		staleTime: (query) => (query.state.data === null ? Number.POSITIVE_INFINITY : 29 * 1000),
 		retry: 1,
 		...options,
 	});

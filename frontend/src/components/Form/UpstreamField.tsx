@@ -1,8 +1,19 @@
 import { IconBrandDocker, IconHistory, IconNetwork, IconRefresh } from "@tabler/icons-react";
 import cn from "classnames";
-import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import {
+	createContext,
+	type KeyboardEvent,
+	type ReactNode,
+	useCallback,
+	useContext,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import {
 	components,
+	createFilter,
 	type GroupBase,
 	type InputProps,
 	type MenuListProps,
@@ -58,10 +69,57 @@ export const groupCandidates = (items: UpstreamCandidate[] = []): GroupBase<Upst
 			.map((c) => ({ value: c.host, label: c.label || c.host, candidate: c })),
 	})).filter((g) => g.options.length > 0);
 
+/**
+ * The port and scheme of a prefill that may actually be written: only fields
+ * that are empty, still hold their saved (initial) value, or still hold what an
+ * earlier pick filled in. A port or scheme the user set themselves is kept.
+ */
+export const allowedPrefill = (
+	prefill: UpstreamPrefill,
+	current: { port?: unknown; scheme?: unknown },
+	initial: { port?: unknown; scheme?: unknown },
+	previous: UpstreamPrefill = {},
+): UpstreamPrefill => {
+	const same = (a: unknown, b: unknown) => typeof b !== "undefined" && b !== null && `${a}` === `${b}`;
+	const isFree = (key: "port" | "scheme") => {
+		const c = current[key];
+		return c === undefined || c === null || c === "" || same(c, initial[key]) || same(c, previous[key]);
+	};
+	const result: UpstreamPrefill = {};
+	if (prefill.port && isFree("port")) result.port = prefill.port;
+	if (prefill.scheme && isFree("scheme")) result.scheme = prefill.scheme;
+	return result;
+};
+
+/** `allowedPrefill` that remembers what it filled in, so a later pick may replace it */
+export function usePrefillGuard() {
+	const previous = useRef<UpstreamPrefill>({});
+	return useCallback(
+		(
+			prefill: UpstreamPrefill,
+			current: { port?: unknown; scheme?: unknown },
+			initial: { port?: unknown; scheme?: unknown },
+		) => {
+			const result = allowedPrefill(prefill, current, initial, previous.current);
+			previous.current = { ...previous.current, ...result };
+			return result;
+		},
+		[],
+	);
+}
+
+// Whether the user moved through the options with the keyboard since the last
+// keystroke. Only then is an option highlighted and does Enter pick it;
+// react-select would otherwise focus the first option and Enter (or Tab) would
+// replace what was typed with it.
+const NavigatedContext = createContext(false);
+
 const Option = (props: OptionProps<UpstreamOption, false, GroupBase<UpstreamOption>>) => {
+	const navigated = useContext(NavigatedContext);
 	const c = props.data.candidate;
+	const isFocused = props.isFocused && navigated;
 	if (!c) {
-		return <components.Option {...props} />;
+		return <components.Option {...props} isFocused={isFocused} />;
 	}
 	const extra = [
 		c.ports?.length ? intl.formatMessage({ id: "upstream.ports" }, { ports: c.ports.join(", ") }) : null,
@@ -69,7 +127,7 @@ const Option = (props: OptionProps<UpstreamOption, false, GroupBase<UpstreamOpti
 		c.usedBy ? intl.formatMessage({ id: "upstream.used-by" }, { count: c.usedBy }) : null,
 	].filter(Boolean);
 	return (
-		<components.Option {...props}>
+		<components.Option {...props} isFocused={isFocused}>
 			<div className="d-flex align-items-center">
 				<span className="me-1">{SOURCE_ICON[c.source]}</span>
 				<strong className="text-break">{c.host}</strong>
@@ -172,6 +230,11 @@ export function UpstreamField({
 	const query = useUpstreamCandidates(wanted && !candidates);
 	const data = candidates ?? query.data;
 	const [input, setInput] = useState(value || "");
+	const [menuIsOpen, setMenuIsOpen] = useState(false);
+	const [navigated, setNavigated] = useState(false);
+	// Input text when the menu was opened. Until the user types, all candidates
+	// are offered, not only those matching the value already in the field.
+	const [openedWith, setOpenedWith] = useState<string | null>(null);
 
 	useEffect(() => {
 		setInput((current) => (current === (value || "") ? current : value || ""));
@@ -185,6 +248,36 @@ export function UpstreamField({
 		() => ({ dockerDisabled, onRefresh: candidates ? undefined : refresh, isRefreshing }),
 		[dockerDisabled, candidates, refresh, isRefreshing],
 	);
+
+	const filterOption = useMemo(() => {
+		const byInput = createFilter<UpstreamOption>();
+		return (option: Parameters<typeof byInput>[0], text: string) => text === openedWith || byInput(option, text);
+	}, [openedWith]);
+
+	const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+		switch (e.key) {
+			case "ArrowUp":
+			case "ArrowDown":
+			case "PageUp":
+			case "PageDown":
+				// react-select already focuses an option (shown only once navigated), so
+				// the first press just reveals it instead of skipping past it. A press
+				// that opens the menu focuses the first option, which is shown too.
+				if (menuIsOpen && !navigated) {
+					e.preventDefault();
+				}
+				setNavigated(true);
+				break;
+			case "Enter":
+				// Without an option chosen by keyboard, Enter keeps the typed text and
+				// just closes the menu.
+				if (menuIsOpen && !navigated) {
+					e.preventDefault();
+					setMenuIsOpen(false);
+				}
+				break;
+		}
+	};
 
 	const setValue = (v: string) => {
 		setInput(v);
@@ -206,47 +299,67 @@ export function UpstreamField({
 
 	return (
 		<MenuFooterContext.Provider value={footer}>
-			<div className={cn({ "is-invalid": isInvalid })}>
-				<CreatableSelect<UpstreamOption, false, GroupBase<UpstreamOption>>
-					inputId={id}
-					className={cn("react-select-container", { "is-invalid": isInvalid })}
-					classNamePrefix="react-select"
-					options={groups}
-					value={selected}
-					inputValue={input}
-					// The typed text *is* the value, so it's shown as input text rather than as a
-					// selected chip, and stays editable.
-					controlShouldRenderValue={false}
-					isClearable
-					isLoading={!candidates && query.isFetching}
-					placeholder={placeholder}
-					components={{ Option, MenuList, Input }}
-					onMenuOpen={() => setWanted(true)}
-					onFocus={() => setWanted(true)}
-					onBlur={onBlur}
-					onInputChange={(v, meta) => {
-						// Ignore the resets react-select does on blur / menu close / select
-						if (meta.action === "input-change") {
-							setValue(v);
-						}
-					}}
-					onChange={handleChange}
-					onCreateOption={(v) => setValue(v.trim())}
-					formatCreateLabel={(v) => intl.formatMessage({ id: "upstream.use-value" }, { value: v })}
-					isValidNewOption={(v, _selected, options) => {
-						const t = v.trim();
-						if (!t || t === value) return false;
-						return !options.some((o: any) => o.value === t || o.options?.some((i: any) => i.value === t));
-					}}
-					noOptionsMessage={() => intl.formatMessage({ id: "upstream.no-options" })}
-					loadingMessage={() => intl.formatMessage({ id: "upstream.loading" })}
-					styles={{
-						option: (base) => ({ ...base, height: "100%" }),
-						control: (base) =>
-							isInvalid ? { ...base, borderColor: "var(--tblr-form-invalid-border-color)" } : base,
-					}}
-				/>
-			</div>
+			<NavigatedContext.Provider value={navigated}>
+				<div className={cn({ "is-invalid": isInvalid })}>
+					<CreatableSelect<UpstreamOption, false, GroupBase<UpstreamOption>>
+						inputId={id}
+						className={cn("react-select-container upstream-field", { "is-invalid": isInvalid })}
+						classNamePrefix="react-select"
+						options={groups}
+						value={selected}
+						inputValue={input}
+						// The typed text *is* the value, so it's shown as input text rather than as a
+						// selected chip, and stays editable.
+						controlShouldRenderValue={false}
+						isClearable
+						isLoading={!candidates && query.isFetching}
+						placeholder={placeholder}
+						components={{ Option, MenuList, Input }}
+						menuIsOpen={menuIsOpen}
+						onMenuOpen={() => {
+							setWanted(true);
+							setMenuIsOpen(true);
+							// When typing opens the menu this is the text before the keystroke
+							setOpenedWith(input);
+						}}
+						onMenuClose={() => {
+							setMenuIsOpen(false);
+							setNavigated(false);
+							setOpenedWith(null);
+						}}
+						onFocus={() => setWanted(true)}
+						onBlur={onBlur}
+						onKeyDown={handleKeyDown}
+						// Tab moves on to the next field and never replaces the typed text
+						tabSelectsValue={false}
+						filterOption={filterOption}
+						onInputChange={(v, meta) => {
+							// Ignore the resets react-select does on blur / menu close / select
+							if (meta.action === "input-change") {
+								setNavigated(false);
+								setValue(v);
+							}
+						}}
+						onChange={handleChange}
+						onCreateOption={(v) => setValue(v.trim())}
+						formatCreateLabel={(v) => intl.formatMessage({ id: "upstream.use-value" }, { value: v })}
+						isValidNewOption={(v, _selected, options) => {
+							const t = v.trim();
+							if (!t || t === value) return false;
+							return !options.some(
+								(o: any) => o.value === t || o.options?.some((i: any) => i.value === t),
+							);
+						}}
+						noOptionsMessage={() => intl.formatMessage({ id: "upstream.no-options" })}
+						loadingMessage={() => intl.formatMessage({ id: "upstream.loading" })}
+						styles={{
+							option: (base) => ({ ...base, height: "100%" }),
+							control: (base) =>
+								isInvalid ? { ...base, borderColor: "var(--tblr-form-invalid-border-color)" } : base,
+						}}
+					/>
+				</div>
+			</NavigatedContext.Provider>
 		</MenuFooterContext.Provider>
 	);
 }

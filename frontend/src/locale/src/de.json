@@ -537,7 +537,7 @@
 		"defaultMessage": "Diese Location enthält Fehler"
 	},
 	"location.error.host-invalid": {
-		"defaultMessage": "Der Host enthält unzulässige Zeichen"
+		"defaultMessage": "Der Host enthält unzulässige Zeichen (Anführungszeichen, ;, Klammern, $, # oder \\). Eine einzelne nginx-Variable wie $backend ist erlaubt."
 	},
 	"location.error.host-whitespace": {
 		"defaultMessage": "Der Host darf keine Leerzeichen enthalten"
@@ -913,6 +913,12 @@
 	},
 	"upstream.check.tcp_unreachable": {
 		"defaultMessage": "Host nicht erreichbar"
+	},
+	"upstream.check.variable": {
+		"defaultMessage": "nginx-Variable"
+	},
+	"upstream.check.variable-tip": {
+		"defaultMessage": "Wird in der erweiterten Konfiguration gesetzt und von nginx bei jeder Anfrage aufgelöst, daher wird sie hier nicht geprüft."
 	},
 	"upstream.docker-disabled": {
 		"defaultMessage": "Docker-Erkennung aktivieren: NPM_DOCKER_DISCOVERY=true setzen und NPM Zugriff auf die Docker-API geben (siehe Dokumentation)."

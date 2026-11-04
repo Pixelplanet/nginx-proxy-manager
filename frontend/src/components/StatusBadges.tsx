@@ -109,3 +109,56 @@ export function UpstreamCheckBadge({ id, result, isChecking }: UpstreamCheckBadg
 		</Tip>
 	);
 }
+
+/**
+ * Live reachability of a forward host:port as a hint line below the field, for
+ * columns too narrow to fit a badge next to the label.
+ */
+export function UpstreamCheckHint({ id, result, isChecking }: UpstreamCheckBadgeProps) {
+	if (isChecking) {
+		return (
+			<div id={id} className="form-hint d-flex align-items-center mt-1 text-secondary" data-check="checking">
+				<IconLoader2 size={14} className="me-1 flex-shrink-0" />
+				<T id="upstream.check.checking" />
+			</div>
+		);
+	}
+	if (!result || result.code === "disabled") {
+		return null;
+	}
+	const warn = result.code === "resolver_mismatch";
+	const cls = result.ok ? (warn ? "text-warning" : "text-success") : "text-danger";
+	const Icon = result.ok ? (warn ? IconAlertTriangle : IconCheck) : IconX;
+	const details = [result.message, result.addresses?.length ? result.addresses.join(", ") : null]
+		.filter(Boolean)
+		.join(" – ");
+	return (
+		<div id={id} className="form-hint d-flex align-items-start mt-1" data-check={result.code}>
+			<Icon size={14} className={cn("me-1 mt-1 flex-shrink-0", cls)} />
+			<span className="text-break">
+				<span className={cls}>{checkResultText(result)}</span>
+				{details ? <span className="text-secondary"> – {details}</span> : null}
+			</span>
+		</div>
+	);
+}
+
+/** In place of a reachability check for a forward host that is an nginx variable */
+export function VariableHostBadge({ id }: { id: string }) {
+	return (
+		<Tip id={`${id}-tip`} tip={intl.formatMessage({ id: "upstream.check.variable-tip" })}>
+			<span className="badge bg-secondary-lt" data-check="variable">
+				<T id="upstream.check.variable" />
+			</span>
+		</Tip>
+	);
+}
+
+/** `VariableHostBadge` as a hint line below the field */
+export function VariableHostHint({ id }: { id: string }) {
+	return (
+		<div id={id} className="form-hint mt-1 text-secondary" data-check="variable">
+			<T id="upstream.check.variable" /> – <T id="upstream.check.variable-tip" />
+		</div>
+	);
+}
