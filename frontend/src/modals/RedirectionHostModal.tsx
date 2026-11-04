@@ -9,14 +9,16 @@ import type { HostMeta } from "src/api/backend";
 import {
 	Button,
 	DomainNamesField,
+	HostConfigTestResult,
 	Loading,
 	NginxConfigField,
 	NginxErrorMessage,
 	SaveWarning,
 	SSLCertificateField,
 	SSLOptionsFields,
+	TestConfigButton,
 } from "src/components";
-import { useRedirectionHost, useSetRedirectionHost } from "src/hooks";
+import { useHostConfigTest, useRedirectionHost, useSetRedirectionHost } from "src/hooks";
 import { T } from "src/locale";
 import { validateString } from "src/modules/Validations";
 import { formatApiError, getNginxErrorDetails, hasSaveWarnings, stripServerMeta } from "src/modules/HostStatus";
@@ -38,19 +40,24 @@ const RedirectionHostModal = EasyModal.create(({ id, visible, remove }: Props) =
 	const [savedMeta, setSavedMeta] = useState<HostMeta | null>(null);
 	// Id of a host created by this modal, so that saving again updates it
 	const [savedId, setSavedId] = useState<number | null>(null);
+	const configTest = useHostConfigTest("redirection-hosts");
+
+	// What a save sends, also what "Test" checks
+	const buildPayload = (values: any) => ({
+		id: savedId ?? (id === "new" ? undefined : id),
+		...values,
+		// server-owned status keys are never sent back
+		meta: stripServerMeta(values.meta),
+	});
 
 	const onSubmit = async (values: any, { setSubmitting, setFieldValue }: any) => {
 		if (isSubmitting) return;
 		setIsSubmitting(true);
 		setErrorMsg(null);
 		setSavedMeta(null);
+		configTest.reset();
 
-		const { ...payload } = {
-			id: savedId ?? (id === "new" ? undefined : id),
-			...values,
-			// server-owned status keys are never sent back
-			meta: stripServerMeta(values.meta),
-		};
+		const payload = buildPayload(values);
 
 		setRedirectionHost(payload, {
 			onError: (err: unknown) => {
@@ -114,7 +121,7 @@ const RedirectionHostModal = EasyModal.create(({ id, visible, remove }: Props) =
 					}
 					onSubmit={onSubmit}
 				>
-					{() => (
+					{(form: any) => (
 						<Form>
 							<Modal.Header closeButton>
 								<Modal.Title>
@@ -129,6 +136,12 @@ const RedirectionHostModal = EasyModal.create(({ id, visible, remove }: Props) =
 								<Alert variant="danger" show={!!errorMsg} onClose={() => setErrorMsg(null)} dismissible>
 									{errorMsg}
 								</Alert>
+								<HostConfigTestResult
+									result={configTest.result}
+									error={configTest.error}
+									testedKey={configTest.testedKey}
+									onClose={configTest.reset}
+								/>
 								<div className="card m-0 border-0">
 									<div className="card-header">
 										<ul className="nav nav-tabs card-header-tabs" data-bs-toggle="tabs">
@@ -358,10 +371,18 @@ const RedirectionHostModal = EasyModal.create(({ id, visible, remove }: Props) =
 								<Button data-bs-dismiss="modal" onClick={remove} disabled={isSubmitting}>
 									<T id="cancel" />
 								</Button>
+								<TestConfigButton
+									onClick={() => {
+										setErrorMsg(null);
+										configTest.runTest(form, buildPayload(form.values));
+									}}
+									isTesting={configTest.isTesting}
+									disabled={isSubmitting}
+								/>
 								<Button
 									type="submit"
 									actionType="primary"
-									className="ms-auto bg-yellow"
+									className="bg-yellow"
 									data-bs-dismiss="modal"
 									isLoading={isSubmitting}
 									disabled={isSubmitting}

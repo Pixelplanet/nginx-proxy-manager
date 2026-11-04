@@ -52,6 +52,7 @@ export * from "./regenerateNginxConfigs";
 export * from "./renewCertificate";
 export * from "./responseTypes";
 export * from "./setPermissions";
+export * from "./testHostConfig";
 export * from "./testHttpCertificate";
 export * from "./toggleDeadHost";
 export * from "./toggleProxyHost";
