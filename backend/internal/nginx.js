@@ -1,10 +1,10 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import fs from "node:fs";
 import net from "node:net";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import _ from "lodash";
 import errs from "../lib/error.js";
+import { attributeToHostFile, blameOtherHost } from "../lib/nginx-blame.js";
 import {
 	capitalise,
 	humaniseNginxMessage,
@@ -13,9 +13,12 @@ import {
 	parseNginxTestOutput,
 	sentence,
 } from "../lib/nginx-errors.js";
+import { createLock } from "../lib/nginx-lock.js";
 import {
 	CONFIG_VERSION_MARKER,
+	chooseLocationMode,
 	describeConfigLine,
+	isVariableHost,
 	MESSAGES as LOCATION_MESSAGES,
 	parseLocationPath,
 	preflightLocation,
@@ -66,19 +69,9 @@ const RECONCILE_RETRY_DELAYS = [30 * 1000, 2 * 60 * 1000, 5 * 60 * 1000];
 /**
  * Every sequence that writes nginx config, tests it and reloads nginx runs through this lock,
  * otherwise concurrent saves test and rename each other's files. Re-entrant: code that already
- * holds the lock runs directly.
+ * holds the lock runs directly. Timers started inside the lock must use runOutsideLock, see lib/nginx-lock.js.
  */
-const lockStorage = new AsyncLocalStorage();
-let lockQueue = Promise.resolve();
-
-const withLock = (fn) => {
-	if (lockStorage.getStore()) {
-		return fn();
-	}
-	const run = lockQueue.then(() => lockStorage.run(true, fn));
-	lockQueue = run.catch(() => {});
-	return run;
-};
+const { withLock, runOutsideLock } = createLock();
 
 const readFileOrNull = (filename) => {
 	try {
@@ -144,13 +137,16 @@ const internalNginx = {
 	 * @param   {Object}         host
 	 * @param   {Object}         [opts]
 	 * @param   {Boolean}        [opts.reload]  default true
+	 * @param   {Boolean}        [opts.dryRun]  only check that nginx accepts the host: the previous config
+	 *                                          files are put back and the meta is not written, see configureHost()
 	 * @returns {Promise<Object>} the new meta
 	 */
 	configure: (model, host_type, host, opts = {}) => {
 		return withLock(() =>
 			internalNginx.configureHost(model, host_type, host, {
-				reload: opts.reload !== false,
+				reload: opts.reload !== false && opts.dryRun !== true,
 				depth: 0,
+				dryRun: opts.dryRun === true,
 			}),
 		);
 	},
@@ -166,6 +162,8 @@ const internalNginx = {
 	 * @param   {Number}   opts.depth           recursion guard for repairing other hosts
 	 * @param   {Function} [opts.modeResolver]  shared DNS cache, see lib/upstream-dns.js
 	 * @param   {Boolean}  [opts.offlineOnError] mark the host offline instead of throwing on host level errors
+	 * @param   {Boolean}  [opts.dryRun]  check only: on success the host's previous config files are put back and
+	 *                                    nothing is written to the database. Other hosts may still be repaired.
 	 * @returns {Promise<Object>}
 	 */
 	configureHost: async (model, host_type, host, opts) => {
@@ -205,7 +203,7 @@ const internalNginx = {
 				throw error;
 			}
 
-			const result = await internalNginx.runTest();
+			const result = await internalNginx.runTest({ file: filename, text: configText });
 			if (result.ok) {
 				failure = null;
 				break;
@@ -227,10 +225,25 @@ const internalNginx = {
 				break;
 			}
 
-			const other = parseManagedFile(parsed.file);
-			if (other && (await internalNginx.healOtherHost(other, parsed, opts.depth))) {
-				heals++;
-				continue;
+			if (parseManagedFile(parsed.file)) {
+				// nginx names another host's file. That host is only repaired or taken offline when its file
+				// fails on its own, without this host's new config: an error can show up in a file that is
+				// fine by itself, eg. a duplicate `listen ... default_server` is reported at the second
+				// definition, or this host's advanced config includes the other host's file.
+				const blame = await blameOtherHost(parsed, () => internalNginx.testWithout(filename, configText));
+				if (blame.action === "conflict") {
+					failure = { scope: "host", parsed, conflict: true };
+					break;
+				}
+				if (
+					blame.action === "heal" &&
+					(await internalNginx.healOtherHost(blame.other, blame.parsed, opts.depth))
+				) {
+					heals++;
+					continue;
+				}
+				failure = { scope: "global", parsed: blame.parsed };
+				break;
 			}
 
 			failure = { scope: "global", parsed };
@@ -238,7 +251,9 @@ const internalNginx = {
 		}
 
 		if (failure) {
-			const error = internalNginx.buildConfigError(failure.scope, hostType, host, failure.parsed, configText);
+			const error = failure.conflict
+				? internalNginx.buildConflictError(hostType, host, failure.parsed)
+				: internalNginx.buildConfigError(failure.scope, hostType, host, failure.parsed, configText);
 			if (opts.offlineOnError && failure.scope === "host") {
 				// Bulk mode: don't fail the whole operation because of one host, take it offline instead
 				internalNginx.renameConfigAsErrorSync(filename);
@@ -251,7 +266,6 @@ const internalNginx = {
 			throw error;
 		}
 
-		internalNginx.deleteFile(`${filename}.err`);
 		const meta = _.assign({}, host.meta, {
 			nginx_online: true,
 			nginx_err: null,
@@ -262,6 +276,13 @@ const internalNginx = {
 			meta.nginx_locations = states ? states.map(publicLocationState) : [];
 		}
 
+		if (opts.dryRun) {
+			internalNginx.restoreConfig(filename, previous);
+			internalNginx.restoreConfig(`${filename}.err`, previousErr);
+			return meta;
+		}
+
+		internalNginx.deleteFile(`${filename}.err`);
 		await model.query().where("id", host.id).patch({ meta });
 
 		if (opts.reload) {
@@ -269,6 +290,64 @@ const internalNginx = {
 			await internalNginx.reloadNginx({ skipTest: true });
 		}
 		return meta;
+	},
+
+	/**
+	 * Runs `nginx -t` with the config file of the host being configured taken out, then puts it back.
+	 * Only call this while holding the lock.
+	 *
+	 * @param   {String} filename    the config file of the host being configured
+	 * @param   {String} configText  its new content
+	 * @returns {Promise<{ok: boolean, parsed?: Object}>}
+	 */
+	testWithout: async (filename, configText) => {
+		internalNginx.deleteFile(filename);
+		try {
+			return await internalNginx.runTest();
+		} finally {
+			try {
+				fs.writeFileSync(filename, configText, { encoding: "utf8" });
+			} catch (err) {
+				logger.error(`Could not write ${filename} back: ${err.message}`);
+			}
+		}
+	},
+
+	/**
+	 * nginx reported the error in another host's file, but that file passes without this host's new config:
+	 * this change is at fault. The other host's file name is not passed on, the user may not be allowed to
+	 * see that host.
+	 *
+	 * @param   {String}  hostType
+	 * @param   {Object}  host
+	 * @param   {Object}  parsed  parsed nginx -t output
+	 * @returns {errs.NginxConfigError}
+	 */
+	buildConflictError: (hostType, host, parsed) => {
+		const humanised = parsed.message
+			? humaniseNginxMessage(parsed.message)
+			: { text: "nginx rejected the configuration", hint: null };
+		const output = `${parsed.output || ""}`.replace(
+			/\/data\/nginx\/(proxy_host|redirection_host|dead_host|stream)\/\d+\.conf(:\d+)?/g,
+			"<another host's config>",
+		);
+		return new errs.NginxConfigError(
+			sentence(`This change conflicts with the configuration of another host: ${humanised.text}`),
+			{
+				kind: "nginx_config",
+				scope: "host",
+				host_type: hostType,
+				host_id: host.id,
+				file: internalNginx.getConfigName(hostType, host.id),
+				line: null,
+				location_index: null,
+				location_path: null,
+				nginx_output: output || null,
+				hint:
+					humanised.hint ||
+					"Another host already uses this setting (for example the same listen port with default_server), or the advanced configuration includes another host's config file.",
+			},
+		);
 	},
 
 	/**
@@ -314,7 +393,11 @@ const internalNginx = {
 				if (problem) {
 					return Object.assign(state, problem);
 				}
-				const result = await modeResolver(loc.forward_host);
+				// A variable upstream (`$backend`) is resolved by nginx itself, there is nothing to look up
+				const resolved = isVariableHost(loc.forward_host)
+					? { mode: "static", status: "ok" }
+					: await modeResolver(loc.forward_host);
+				const result = chooseLocationMode(loc, resolved);
 				state.mode = result.mode;
 				state.status = result.status;
 				if (result.status === "unresolved") {
@@ -555,51 +638,53 @@ const internalNginx = {
 	},
 
 	/**
+	 * @param   {Object} [own]       the host being configured
+	 * @param   {String} [own.file]  its config file
+	 * @param   {String} [own.text]  its new config
 	 * @returns {Promise<{ok: boolean, parsed?: Object}>}
 	 */
-	runTest: async () => {
+	runTest: async (own) => {
 		try {
 			await internalNginx.test();
 			return { ok: true };
 		} catch (err) {
 			const output = err?.message || `${err}`;
 			debug(logger, "Nginx test failed:", output);
-			return { ok: false, parsed: internalNginx.attributeToHostFile(parseNginxTestOutput(output)) };
+			return { ok: false, parsed: internalNginx.attributeToHostFile(parseNginxTestOutput(output), own) };
 		}
 	},
 
 	/**
-	 * Some errors (eg. `cannot load certificate "/etc/letsencrypt/live/npm-1/fullchain.pem"`) don't name the
-	 * config file. When the message names a file path, the host config that references it is blamed.
+	 * Finds the host config to blame for an error that names no config file, see lib/nginx-blame.js
 	 *
 	 * @param   {Object} parsed  parsed nginx -t output
+	 * @param   {Object} [own]   {file, text} of the host being configured
 	 * @returns {Object} parsed, with file set when a host config could be found
 	 */
-	attributeToHostFile: (parsed) => {
-		if (parsed.file) {
-			return parsed;
-		}
-		const paths = [...`${parsed.message}`.matchAll(/"(\/[^"\s]+)"/g)].map((m) => m[1]);
-		if (!paths.length) {
-			return parsed;
-		}
-		for (const hostType of Object.keys(HOST_MODELS)) {
-			const dir = `/data/nginx/${hostType}`;
-			let files = [];
-			try {
-				files = fs.readdirSync(dir).filter((f) => /^\d+\.conf$/.test(f));
-			} catch {
-				continue;
-			}
-			for (const file of files) {
-				const text = readFileOrNull(`${dir}/${file}`) || "";
-				if (paths.some((p) => text.includes(p))) {
-					return Object.assign({}, parsed, { file: `${dir}/${file}` });
+	attributeToHostFile: (parsed, own) =>
+		attributeToHostFile(parsed, {
+			own,
+			listFiles: () => {
+				const out = [];
+				for (const hostType of Object.keys(HOST_MODELS)) {
+					const dir = `/data/nginx/${hostType}`;
+					let files = [];
+					try {
+						files = fs
+							.readdirSync(dir)
+							.filter((f) => /^\d+\.conf$/.test(f))
+							// the order nginx and prepare/55-nginx-validate.sh read them in
+							.sort();
+					} catch {
+						continue;
+					}
+					for (const file of files) {
+						out.push({ file: `${dir}/${file}`, text: readFileOrNull(`${dir}/${file}`) || "" });
+					}
 				}
-			}
-		}
-		return parsed;
-	},
+				return out;
+			},
+		}),
 
 	/**
 	 * Plain `nginx -t` of the whole configuration
@@ -1075,8 +1160,15 @@ const internalNginx = {
 			const type = internalNginx.getFileFriendlyHostType(hostType);
 			const model = HOST_MODELS[type];
 			const modeResolver = createModeResolver();
-			for (const host of hosts || []) {
-				if (!host?.enabled || host.is_deleted) {
+			for (const staleHost of hosts || []) {
+				if (!staleHost?.id) {
+					continue;
+				}
+				// The rows were loaded before the lock was taken, sometimes minutes before (a certificate
+				// request). Configure from the current row, or a concurrent edit (its locations, its meta)
+				// would be overwritten with the old values.
+				const host = await internalNginx.loadHostRow(type, staleHost.id);
+				if (!host?.enabled) {
 					continue;
 				}
 				await internalNginx.configureHost(model, type, host, {
@@ -1087,6 +1179,22 @@ const internalNginx = {
 				});
 			}
 		}),
+
+	/**
+	 * @param   {String}  hostType  file friendly host type
+	 * @param   {Number}  id
+	 * @returns {Promise<Object|undefined>} the non-deleted row with the relations the templates need
+	 */
+	loadHostRow: (hostType, id) => {
+		const model = HOST_MODELS[hostType];
+		return model
+			.query()
+			.where("is_deleted", 0)
+			.andWhere("id", id)
+			.allowGraph(model.defaultAllowGraph)
+			.withGraphFetched(`[${model.defaultExpand.join(", ")}]`)
+			.first();
+	},
 
 	/**
 	 * @param   {String}  host_type
@@ -1196,10 +1304,13 @@ const internalNginx = {
 			);
 
 			if (retries && attempt < RECONCILE_RETRY_DELAYS.length) {
-				const timer = setTimeout(() => {
-					internalNginx.reconcile({ only: summary.retry, attempt: attempt + 1 });
-				}, RECONCILE_RETRY_DELAYS[attempt]);
-				timer.unref?.();
+				// Outside the lock context: the retry has to queue for the lock like any other caller
+				runOutsideLock(() => {
+					const timer = setTimeout(() => {
+						internalNginx.reconcile({ only: summary.retry, attempt: attempt + 1 });
+					}, RECONCILE_RETRY_DELAYS[attempt]);
+					timer.unref?.();
+				});
 			}
 			return summary;
 		}).catch((err) => {

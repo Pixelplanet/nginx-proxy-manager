@@ -16,5 +16,10 @@
  {"path":"/hostpath/","host":"echo/hp","fp":""},
  {"path":"/cache/","fp":"/c/","cache":true},
  {"path":"/cacheroot/","fp":"","cache":true},
- {"path":"/acl/","fp":"/v/","acl":true}
+ {"path":"/acl/","fp":"/v/","acl":true},
+ {"path":"\"/q p/\"","fp":"/x/"},
+ {"path":"\"/qc p/\"","fp":"/c/","cache":true},
+ {"path":"/uri/","fp":"/x/","adv":"add_header X-Sem-Uri $uri always;"},
+ {"path":"/var/","host":"$sembackend","fp":"","adv":"set $sembackend echo;"},
+ {"path":"/varfp/","host":"$sembackend","fp":"/x/","adv":"set $sembackend echo;"}
 ]

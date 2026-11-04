@@ -47,6 +47,45 @@ describe("health: targets", () => {
 	});
 });
 
+describe("health: variable upstreams", () => {
+	it("skips forward hosts that are nginx variables", () => {
+		const targets = buildHealthTargets({
+			proxyHosts: [
+				{
+					id: 20,
+					owner_user_id: 1,
+					enabled: true,
+					forward_host: "$server",
+					forward_port: 80,
+					locations: [
+						{ path: "/v", forward_host: "$backend", forward_port: 8080 },
+						{ path: "/a", forward_host: "app", forward_port: 80 },
+					],
+				},
+				{ id: 21, owner_user_id: 1, enabled: true, forward_host: "$only", forward_port: 80, locations: [] },
+			],
+			streams: [
+				{
+					id: 5,
+					owner_user_id: 1,
+					enabled: true,
+					tcp_forwarding: true,
+					forwarding_host: "$up",
+					forwarding_port: 1,
+				},
+			],
+		});
+		assert.deepEqual(targets, [
+			{
+				type: "proxy_host",
+				id: 20,
+				owner_user_id: 1,
+				targets: [{ location_index: 1, path: "/a", host: "app", port: 80, scheme: undefined }],
+			},
+		]);
+	});
+});
+
 describe("health: monitor", () => {
 	it("runs a round, dedupes host:port, and filters the snapshot", async () => {
 		const calls = [];

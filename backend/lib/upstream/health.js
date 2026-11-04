@@ -1,4 +1,4 @@
-import { createLimiter, splitHostPath } from "./util.js";
+import { createLimiter, isVariableHost, splitHostPath } from "./util.js";
 
 /**
  * Background upstream health monitor. In memory only: nothing is written to the database.
@@ -38,7 +38,8 @@ const buildHealthTargets = ({ proxyHosts = [], streams = [] } = {}) => {
 		const targets = [];
 		const { host } = splitHostPath(row.forward_host);
 		const port = toPort(row.forward_port);
-		if (host && port) {
+		// A variable upstream (`$backend`) is resolved by nginx per request and can't be probed
+		if (host && port && !isVariableHost(host)) {
 			targets.push({ location_index: null, host, port, scheme: row.forward_scheme });
 		}
 		(Array.isArray(row.locations) ? row.locations : []).forEach((location, index) => {
@@ -47,7 +48,7 @@ const buildHealthTargets = ({ proxyHosts = [], streams = [] } = {}) => {
 			}
 			const split = splitHostPath(location.forward_host);
 			const locationPort = toPort(location.forward_port);
-			if (!split.host || !locationPort) {
+			if (!split.host || !locationPort || isVariableHost(split.host)) {
 				return;
 			}
 			targets.push({
@@ -70,7 +71,7 @@ const buildHealthTargets = ({ proxyHosts = [], streams = [] } = {}) => {
 		}
 		const { host } = splitHostPath(row.forwarding_host);
 		const port = toPort(row.forwarding_port);
-		if (!host || !port) {
+		if (!host || !port || isVariableHost(host)) {
 			continue;
 		}
 		out.push({

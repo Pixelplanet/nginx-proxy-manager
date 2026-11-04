@@ -63,8 +63,12 @@ const internalRedirectionHost = {
 			.then((row) => {
 				createdId = row.id;
 				if (createCertificate) {
-					return internalCertificate
-						.createQuickCertificate(access, thisData)
+					// Check that nginx accepts the host before a certificate is requested: when the host is
+					// rejected the create is rolled back, and a certificate issued for it would be left behind
+					// (and renewed forever). The SSL part is checked again when the certificate is added.
+					return internalNginx
+						.configure(redirectionHostModel, "redirection_host", row, { dryRun: true })
+						.then(() => internalCertificate.createQuickCertificate(access, thisData))
 						.then((cert) => {
 							// update host with cert id
 							return internalRedirectionHost.update(access, {
@@ -341,8 +345,12 @@ const internalRedirectionHost = {
 						return internalNginx
 							.configure(redirectionHostModel, "redirection_host", row)
 							.catch(async (err) => {
-								// The host could not be activated, keep it disabled
-								await redirectionHostModel.query().where("id", row.id).patch({ enabled: 0 });
+								// nginx rejected the host and kept the previous config, keep it disabled. Any other failure
+								// (eg. only the reload failed) leaves the new config file in place: then it stays enabled,
+								// otherwise the next reload activates a host that the UI shows as disabled.
+								if (internalNginx.isHostLevelError(err)) {
+									await redirectionHostModel.query().where("id", row.id).patch({ enabled: 0 });
+								}
 								throw err;
 							});
 					})

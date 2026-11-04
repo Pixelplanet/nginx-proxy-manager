@@ -202,13 +202,36 @@ describe("upstream check: classification against local servers", () => {
 });
 
 describe("upstream check: input validation", () => {
-	for (const host of ["", " ", "a b", "a;b", "a{b", "a}b", "a'b", 'a"b', "a`b", "$host", "-bad", "a..b"]) {
+	for (const host of [
+		"",
+		" ",
+		"a b",
+		"a;b",
+		"a{b",
+		"a}b",
+		"a'b",
+		'a"b',
+		"a`b",
+		"$host x",
+		"a$host",
+		"-bad",
+		"a..b",
+	]) {
 		it(`invalid_host for ${JSON.stringify(host)}`, async () => {
 			const result = await checkTarget({ host, port: 80 }, { resolvers: null, lookup: fakeLookup({}) });
 			assert.equal(result.code, "invalid_host");
 			assert.equal(result.ok, false);
 		});
 	}
+
+	it("does not check a forward host that is an nginx variable", async () => {
+		for (const host of ["$backend", "$server/sub"]) {
+			const result = await checkTarget({ host, port: 80 }, { resolvers: null, lookup: fakeLookup({}) });
+			assert.equal(result.code, "disabled", host);
+			assert.match(result.message, /nginx variable/);
+			assert.deepEqual(result.addresses, []);
+		}
+	});
 
 	it("accepts IPv6 literals with and without brackets", async () => {
 		for (const host of ["::1", "[::1]"]) {
