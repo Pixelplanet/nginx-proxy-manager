@@ -39,7 +39,7 @@ const RedirectionHostModal = EasyModal.create(({ id, visible, remove }: Props) =
 	// Id of a host created by this modal, so that saving again updates it
 	const [savedId, setSavedId] = useState<number | null>(null);
 
-	const onSubmit = async (values: any, { setSubmitting }: any) => {
+	const onSubmit = async (values: any, { setSubmitting, setFieldValue }: any) => {
 		if (isSubmitting) return;
 		setIsSubmitting(true);
 		setErrorMsg(null);
@@ -67,6 +67,8 @@ const RedirectionHostModal = EasyModal.create(({ id, visible, remove }: Props) =
 				if (result && hasSaveWarnings(result.meta)) {
 					// Keep the modal open so the problem can be seen
 					setSavedId(result.id || null);
+					// A requested certificate ("new") now exists: saving again must not request another one
+					setFieldValue("certificateId", result.certificateId || 0);
 					setSavedMeta(result.meta);
 					return;
 				}

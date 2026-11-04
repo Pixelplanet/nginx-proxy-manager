@@ -105,7 +105,7 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 	});
 	const tabPane = (tab: TabId) => cn("tab-pane", { "active show": activeTab === tab });
 
-	const onSubmit = async (values: any, { setSubmitting }: any) => {
+	const onSubmit = async (values: any, { setSubmitting, setFieldValue }: any) => {
 		if (isSubmitting) return;
 		setIsSubmitting(true);
 		setErrorMsg(null);
@@ -139,6 +139,8 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 				if (result && hasSaveWarnings(result.meta)) {
 					// Keep the modal open so the problems can be seen (and fixed)
 					setSavedId(result.id || null);
+					// A requested certificate ("new") now exists: saving again must not request another one
+					setFieldValue("certificateId", result.certificateId || 0);
 					setSavedMeta(result.meta);
 					if (getProblemLocations(result.meta).length) {
 						setActiveTab("locations");
