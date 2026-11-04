@@ -23,7 +23,10 @@ describe("normaliseHostTypes", () => {
 
 describe("hostName", () => {
 	it("uses the first domain name", () => {
-		assert.equal(hostName("proxy_host", { id: 3, domain_names: ["a.example.com", "b.example.com"] }), "a.example.com");
+		assert.equal(
+			hostName("proxy_host", { id: 3, domain_names: ["a.example.com", "b.example.com"] }),
+			"a.example.com",
+		);
 	});
 
 	it("uses the incoming port of a stream", () => {
@@ -38,7 +41,13 @@ describe("hostName", () => {
 describe("locationWarning", () => {
 	it("is null without broken locations", () => {
 		assert.equal(locationWarning(undefined), null);
-		assert.equal(locationWarning([{ path: "/a", status: "ok" }, { path: "/b", status: "disabled" }]), null);
+		assert.equal(
+			locationWarning([
+				{ path: "/a", status: "ok" },
+				{ path: "/b", status: "disabled" },
+			]),
+			null,
+		);
 	});
 
 	it("lists quarantined and unresolved locations", () => {
@@ -92,7 +101,10 @@ describe("createSingleFlight", () => {
 		let release;
 		const first = flight.run(() => new Promise((resolve) => (release = resolve)));
 		assert.equal(flight.isRunning(), true);
-		await assert.rejects(flight.run(async () => "second"), (err) => err.status === 409);
+		await assert.rejects(
+			flight.run(async () => "second"),
+			(err) => err.status === 409,
+		);
 		release("first");
 		assert.equal(await first, "first");
 		assert.equal(flight.isRunning(), false);
