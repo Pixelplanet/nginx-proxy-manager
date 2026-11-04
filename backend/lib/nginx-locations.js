@@ -33,11 +33,20 @@ const CONFIG_VERSION_MARKER = `# npm-config-version: ${CONFIG_VERSION}`;
 // Characters that would break out of the generated nginx directive
 const INVALID_HOST_CHARS = /[\s;{}'"`\\$#]/;
 
+// A forward host that is a single nginx variable, eg. `$backend` with `set $backend app;` in the advanced
+// config (a common workaround for "host not found in upstream"). It is rendered literally as it always was:
+// no DNS check, no rewrite.
+const VARIABLE_HOST = /^\$[A-Za-z_][A-Za-z0-9_]*$/;
+
+// Variables whose value changes when the dynamic rendering rewrites the URI, see chooseLocationMode()
+const URI_VARIABLES = /\$(uri|document_uri)(?![A-Za-z0-9_])|\$\{(uri|document_uri)\}/;
+
 const MESSAGES = {
 	regexWithForwardPath:
 		"A forward path can't be used with a regular-expression location; remove the forward path or use a prefix location.",
 	namedWithForwardPath: "A forward path can't be used with a named location; remove the forward path.",
-	invalidHost: "The forward host contains characters that are not allowed (spaces, quotes, ; { } $ # or \\).",
+	invalidHost:
+		"The forward host contains characters that are not allowed (spaces, quotes, ; { } $ # or \\). A single nginx variable such as $backend is allowed.",
 	emptyHost: "The forward host is empty.",
 	emptyPath: "The location path is empty.",
 	unbalancedBraces: "The advanced configuration of this location has unbalanced { } braces.",
@@ -48,8 +57,19 @@ const MESSAGES = {
 };
 
 /**
+ * Removes the quotes nginx strips from a quoted location path, `"/my path"` -> `/my path`
+ *
+ * @param   {String} uri
+ * @returns {String}
+ */
+const unquote = (uri) => {
+	const m = `${uri}`.match(/^(["'])(.*)\1$/s);
+	return m ? m[2].replace(/\\(["'\\])/g, "$1") : uri;
+};
+
+/**
  * @param   {String} path
- * @returns {{modifier: String, uri: String, isRegex: boolean, isNamed: boolean, isExact: boolean, normalised: String}}
+ * @returns {{modifier: String, uri: String, unquoted: String, isRegex: boolean, isNamed: boolean, isExact: boolean, normalised: String}}
  */
 const parseLocationPath = (path) => {
 	const trimmed = `${path || ""}`.trim();
@@ -59,6 +79,7 @@ const parseLocationPath = (path) => {
 	return {
 		modifier,
 		uri,
+		unquoted: unquote(uri),
 		isRegex: modifier === "~" || modifier === "~*",
 		isNamed: !modifier && uri.startsWith("@"),
 		isExact: modifier === "=",
@@ -75,20 +96,25 @@ const parseLocationPath = (path) => {
 const normaliseLocationPath = (path) => parseLocationPath(path).normalised;
 
 /**
+ * Only the duplicates nginx itself rejects with `duplicate location`: two exact locations with the same
+ * URI, or two prefix locations with the same URI (`/x` and `^~ /x` count as the same). nginx accepts
+ * duplicate regex and named locations (the first one wins), so they are left alone.
+ *
  * @param   {Array} locations
  * @returns {String|null}  the first duplicated (normalised) path, or null
  */
 const findDuplicatePath = (locations) => {
 	const seen = new Set();
 	for (const location of locations || []) {
-		const normalised = normaliseLocationPath(location?.path);
-		if (!normalised) {
+		const parsed = parseLocationPath(location?.path);
+		if (!parsed.uri || parsed.isRegex || parsed.isNamed) {
 			continue;
 		}
-		if (seen.has(normalised)) {
-			return normalised;
+		const key = `${parsed.isExact ? "=" : "prefix"} ${parsed.unquoted}`;
+		if (seen.has(key)) {
+			return parsed.normalised;
 		}
-		seen.add(normalised);
+		seen.add(key);
 	}
 	return null;
 };
@@ -130,7 +156,9 @@ const prepareLocation = (location) => {
 };
 
 /**
- * Checks that { and } are balanced, ignoring comments and quoted strings.
+ * Checks that { and } are balanced the way nginx's tokenizer sees them: a comment (#) or a quoted string
+ * only starts at the beginning of a token, so `/#/x` or `don't` are plain words. Inside a word `{`
+ * opens a block (unless it is `${var}`) and `}` is part of the word.
  *
  * @param   {String} text
  * @returns {boolean}
@@ -139,6 +167,7 @@ const bracesBalanced = (text) => {
 	const str = `${text || ""}`;
 	let depth = 0;
 	let quote = null;
+	let tokenStart = true;
 	for (let i = 0; i < str.length; i++) {
 		const ch = str[i];
 		if (quote) {
@@ -146,7 +175,29 @@ const bracesBalanced = (text) => {
 				i++;
 			} else if (ch === quote) {
 				quote = null;
+				tokenStart = false;
 			}
+			continue;
+		}
+		if (/\s/.test(ch) || ch === ";") {
+			tokenStart = true;
+			continue;
+		}
+		if (ch === "\\") {
+			i++;
+			tokenStart = false;
+			continue;
+		}
+		if (ch === "{") {
+			if (!tokenStart && str[i - 1] === "$") {
+				// ${var}
+				continue;
+			}
+			depth++;
+			tokenStart = true;
+			continue;
+		}
+		if (!tokenStart) {
 			continue;
 		}
 		if (ch === "#") {
@@ -157,19 +208,23 @@ const bracesBalanced = (text) => {
 			i = eol;
 		} else if (ch === '"' || ch === "'") {
 			quote = ch;
-		} else if (ch === "\\") {
-			i++;
-		} else if (ch === "{") {
-			depth++;
 		} else if (ch === "}") {
 			depth--;
 			if (depth < 0) {
 				return false;
 			}
+		} else {
+			tokenStart = false;
 		}
 	}
 	return depth === 0 && quote === null;
 };
+
+/**
+ * @param   {String} host
+ * @returns {boolean} true when the forward host is a single nginx variable, eg. `$backend`
+ */
+const isVariableHost = (host) => VARIABLE_HOST.test(`${host || ""}`.trim());
 
 /**
  * Problems that are known before nginx is asked.
@@ -188,7 +243,7 @@ const preflightLocation = (loc) => {
 	if (!loc.forward_host) {
 		return { status: "quarantined", message: MESSAGES.emptyHost };
 	}
-	if (INVALID_HOST_CHARS.test(loc.forward_host)) {
+	if (!isVariableHost(loc.forward_host) && INVALID_HOST_CHARS.test(loc.forward_host)) {
 		return { status: "quarantined", message: MESSAGES.invalidHost };
 	}
 	if (!bracesBalanced(loc.advanced_config)) {
@@ -212,6 +267,44 @@ const hasDirective = (advancedConfig, directive) =>
 	new RegExp(`(^|[;{}\\s])${directive}\\s`, "m").test(`${advancedConfig || ""}`.replace(/#.*$/gm, ""));
 
 /**
+ * @param   {Object} loc  a prepared location
+ * @returns {boolean} true when the dynamic rendering of this location rewrites the URI
+ */
+const rewritesUri = (loc) => {
+	const parsed = parseLocationPath(loc.path);
+	return !!loc.forward_path && !parsed.isRegex && !parsed.isNamed;
+};
+
+/**
+ * The final mode of a location, from what the DNS check (lib/upstream-dns.js) found:
+ *
+ * - a forward host that is an nginx variable is always static (rendered literally, as it always was)
+ * - with a forward path the dynamic rendering replaces the location prefix through `rewrite ... break`,
+ *   which changes $uri and $document_uri for everything that runs later (proxy_set_header, add_header,
+ *   try_files, ...). A location whose advanced config reads one of them stays static while its host
+ *   resolves, so it sees the same value as before. When the host does not resolve it has to be dynamic
+ *   (a literal unknown host fails `nginx -t` for every host), see docs/src/advanced-config/locations.md.
+ *
+ * @param   {Object} loc       a prepared location
+ * @param   {Object} resolved  {mode, status} from the mode resolver
+ * @returns {{mode: String, status: String}}
+ */
+const chooseLocationMode = (loc, resolved) => {
+	if (isVariableHost(loc.forward_host)) {
+		return { mode: "static", status: "ok" };
+	}
+	if (
+		resolved.mode === "dynamic" &&
+		resolved.status === "ok" &&
+		rewritesUri(loc) &&
+		URI_VARIABLES.test(`${loc.advanced_config || ""}`)
+	) {
+		return { mode: "static", status: "ok" };
+	}
+	return { mode: resolved.mode, status: resolved.status };
+};
+
+/**
  * Template variables (all prefixed npm_) for the dynamic / static rendering of a location.
  *
  * @param   {Object} loc    prepared location (merged with the host's settings)
@@ -224,11 +317,14 @@ const buildLocationContext = (loc, state) => {
 	const hostVar = `$npm_loc_${state.index}_host`;
 	const upstreamBase = `${loc.forward_scheme}://${loc.forward_host}:${loc.forward_port}`;
 	const fp = loc.forward_path || "";
-	const canRewrite = !!fp && !parsed.isRegex && !parsed.isNamed;
-	const rewrite = canRewrite ? `^${escapeRegex(parsed.uri)}(.*)$ ${fp}$1` : "";
+	const canRewrite = rewritesUri(loc);
+	// (?s): "." also matches a newline (%0A in the URI), otherwise such a URI is not rewritten and reaches
+	// the upstream outside of the forward path. Quoted, so a quoted path with spaces stays one argument.
+	const rewrite = canRewrite ? `"(?s)^${escapeRegex(parsed.unquoted).replace(/"/g, '\\"')}(.*)$" ${fp}$1` : "";
 	const redirect = canRewrite ? `${upstreamBase}${fp} ${parsed.uri}` : `${upstreamBase}/ /`;
-	// nginx does not allow nested locations in exact match and named locations
-	const assetsAllowed = !parsed.isExact && !parsed.isNamed;
+	// nginx does not allow nested locations in exact match and named locations. A nested location doesn't
+	// run the parent's `set`, so a variable upstream set in the advanced config would be empty there.
+	const assetsAllowed = !parsed.isExact && !parsed.isNamed && !isVariableHost(loc.forward_host);
 
 	return Object.assign({}, loc, {
 		forward_path: fp,
@@ -365,10 +461,12 @@ export {
 	MESSAGES,
 	bracesBalanced,
 	buildLocationContext,
+	chooseLocationMode,
 	describeConfigLine,
 	escapeRegex,
 	findDuplicatePath,
 	hasDirective,
+	isVariableHost,
 	normaliseLocationPath,
 	parseLocationPath,
 	preflightLocation,

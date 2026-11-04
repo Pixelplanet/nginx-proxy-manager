@@ -12,6 +12,15 @@ const HOSTNAME_PATTERN =
 	/^(?=.{1,253}\.?$)[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,62})(?:\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,62}))*\.?$/;
 
 /**
+ * A forward host that is a single nginx variable, eg. `$backend` set in the advanced config. nginx resolves
+ * it per request, it can't be checked from here. Same rule as the location renderer (lib/nginx-locations.js).
+ *
+ * @param   {string} host  Host without any path
+ * @returns {boolean}
+ */
+const isVariableHost = (host) => /^\$[A-Za-z_][A-Za-z0-9_]*$/.test(`${host ?? ""}`.trim());
+
+/**
  * Splits a forward host the way the location renderer does: "host/some/path" -> host + "/some/path".
  * Surrounding whitespace is trimmed.
  *
@@ -299,6 +308,7 @@ export {
 	intToIpv4,
 	ipv4ToInt,
 	isValidHost,
+	isVariableHost,
 	normaliseServer,
 	parseIpv4Cidr,
 	parseProcNetRouteGateways,

@@ -1,6 +1,14 @@
 import dns from "node:dns";
 import net from "node:net";
-import { createLimiter, isValidHost, readNginxResolvers, splitHostPath, unbracket, withTimeout } from "./util.js";
+import {
+	createLimiter,
+	isValidHost,
+	isVariableHost,
+	readNginxResolvers,
+	splitHostPath,
+	unbracket,
+	withTimeout,
+} from "./util.js";
 
 const TCP_TIMEOUT_MS = 3000;
 const SYSTEM_LOOKUP_TIMEOUT_MS = 2000;
@@ -182,7 +190,10 @@ const MESSAGES = {
 		`Connection to ${describeHost(t.host, t.port)} timed out. A firewall may be dropping traffic, or the host is down.`,
 	tcp_unreachable: (t) =>
 		`${describeHost(t.host, t.port)} is unreachable from Nginx Proxy Manager (no route to host).`,
-	disabled: () => "Upstream checks are disabled on this server (NPM_UPSTREAM_CHECK=false).",
+	disabled: (t) =>
+		isVariableHost(t.host)
+			? `"${t.host}" is an nginx variable. nginx resolves it per request, it can't be checked here.`
+			: "Upstream checks are disabled on this server (NPM_UPSTREAM_CHECK=false).",
 };
 
 /**
@@ -239,7 +250,8 @@ const checkTarget = async (rawTarget, opts = {}) => {
 		scheme: rawTarget.scheme ?? null,
 	};
 
-	if (opts.enabled === false) {
+	// A variable upstream is not checked: neutral "disabled" result, not an invalid host
+	if (opts.enabled === false || isVariableHost(target.host)) {
 		return makeResult(target, { code: "disabled" });
 	}
 
