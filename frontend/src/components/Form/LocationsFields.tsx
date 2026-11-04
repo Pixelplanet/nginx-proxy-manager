@@ -49,6 +49,8 @@ const INVALID_HOST_CHARS = /[;{}'"`\\$#]/;
 // The path part of `host/path` goes into `proxy_pass ...<path>;`; the backend
 // quarantines a path with these. `$` is allowed, nginx variables are fine there.
 const INVALID_PATH_CHARS = /[\s;{}'"`\\#]/;
+// `${name}` is a variable too, the backend replaces it before the check above
+const BRACED_VARIABLE = /\$\{[A-Za-z0-9_]+\}/g;
 
 export const validateLocations = (items: ProxyLocation[] = []): (LocationErrors | undefined)[] => {
 	// Locations nginx would reject as duplicates, by key: index and path of each
@@ -82,7 +84,7 @@ export const validateLocations = (items: ProxyLocation[] = []): (LocationErrors 
 			errors.forwardHost = intl.formatMessage({ id: "location.error.host-whitespace" });
 		} else if (!isVariableHost(hostPart) && INVALID_HOST_CHARS.test(hostPart)) {
 			errors.forwardHost = intl.formatMessage({ id: "location.error.host-invalid" });
-		} else if (INVALID_PATH_CHARS.test(pathPart)) {
+		} else if (INVALID_PATH_CHARS.test(pathPart.replace(BRACED_VARIABLE, "$x"))) {
 			errors.forwardHost = intl.formatMessage({ id: "location.error.path-invalid" });
 		}
 

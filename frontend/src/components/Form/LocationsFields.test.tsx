@@ -94,6 +94,8 @@ describe("validateLocations", () => {
 			"app/`q",
 			"app/a\\b",
 			"app/my path",
+			"app/$" + "{a b}",
+			"app/$" + "{}",
 			"app/a\tb",
 			"$backend/a;b",
 		]) {
@@ -102,7 +104,14 @@ describe("validateLocations", () => {
 			);
 		}
 		// nginx variables in the path are fine
-		for (const forwardHost of ["app/$uri", "$backend/api/$arg_x", "app/a-b_c.d/~e"]) {
+		for (const forwardHost of [
+			"app/$uri",
+			"$backend/api/$arg_x",
+			"app/a-b_c.d/~e",
+			// braced variables, like the backend
+			"app/$" + "{uri}",
+			"$backend/api/$" + "{arg_x}/x",
+		]) {
 			expect(validateLocations([loc({ forwardHost })])[0]).toBeUndefined();
 		}
 	});
