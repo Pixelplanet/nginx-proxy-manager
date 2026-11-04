@@ -32,12 +32,54 @@ if [ "$PUID" != '0' ]; then
 	done
 fi
 
+# The backend moves host configs to <file>.npm-aside for a moment while it tests without
+# them. A backend that was killed right then leaves them there: put them back (or drop
+# them when the .conf was written again since).
+for NGINX_VALIDATE_ASIDE in /data/nginx/proxy_host/*.conf.npm-aside /data/nginx/redirection_host/*.conf.npm-aside /data/nginx/dead_host/*.conf.npm-aside /data/nginx/stream/*.conf.npm-aside /data/nginx/default_host/*.conf.npm-aside; do
+	[ -e "$NGINX_VALIDATE_ASIDE" ] || continue
+	NGINX_VALIDATE_CONF="${NGINX_VALIDATE_ASIDE%.npm-aside}"
+	if [ -e "$NGINX_VALIDATE_CONF" ]; then
+		rm -f "$NGINX_VALIDATE_ASIDE" || log_error "Could not remove stale ${NGINX_VALIDATE_ASIDE}"
+	elif mv -f "$NGINX_VALIDATE_ASIDE" "$NGINX_VALIDATE_CONF"; then
+		log_info "Restored ${NGINX_VALIDATE_CONF} from an interrupted config test"
+	else
+		log_error "Could not restore ${NGINX_VALIDATE_CONF} from ${NGINX_VALIDATE_ASIDE}"
+	fi
+done
+
 NGINX_VALIDATE_MAX=100
 NGINX_VALIDATE_COUNT=0
 NGINX_VALIDATE_HOSTS='/data/nginx/(proxy_host|redirection_host|dead_host|stream)/[0-9]+\.conf'
 
+# Runs nginx -t as PUID:PGID, prints the output
+nginx_validate_test() {
+	s6-setuidgid "$PUID:$PGID" nginx -t -g 'error_log /dev/null;' 2>&1 || true
+}
+
+# Prints the first error line (emerg/alert/crit) of nginx -t output given as $1
+nginx_validate_error() {
+	echo "$1" | grep -v '/var/log/nginx/error.log' | grep -E '\[(emerg|alert|crit)\]' | head -n 1 || true
+}
+
+# Moves the files given as arguments aside, runs nginx -t, puts them back and prints the
+# output. A file that can't be put back is logged (the backend regenerates it later).
+nginx_validate_test_aside() {
+	local file moved=()
+	for file in "$@"; do
+		if mv -f "$file" "${file}.npm-aside"; then
+			moved+=("$file")
+		fi
+	done
+	nginx_validate_test
+	for file in "${moved[@]}"; do
+		if ! mv -f "${file}.npm-aside" "$file"; then
+			log_error "Could not move ${file}.npm-aside back to ${file}" >&2
+		fi
+	done
+}
+
 while [ "$NGINX_VALIDATE_COUNT" -lt "$NGINX_VALIDATE_MAX" ]; do
-	NGINX_VALIDATE_OUTPUT="$(s6-setuidgid "$PUID:$PGID" nginx -t -g 'error_log /dev/null;' 2>&1 || true)"
+	NGINX_VALIDATE_OUTPUT="$(nginx_validate_test)"
 
 	if echo "$NGINX_VALIDATE_OUTPUT" | grep -q 'test is successful'; then
 		break
@@ -45,38 +87,76 @@ while [ "$NGINX_VALIDATE_COUNT" -lt "$NGINX_VALIDATE_MAX" ]; do
 
 	# Only the error itself names the broken file: warnings before it (eg. a deprecated
 	# "listen ... http2" in a healthy host) name files too
-	NGINX_VALIDATE_ERROR="$(echo "$NGINX_VALIDATE_OUTPUT" | grep -v '/var/log/nginx/error.log' | grep -E '\[(emerg|alert|crit)\]' | head -n 1 || true)"
-	NGINX_VALIDATE_FILE="$(echo "$NGINX_VALIDATE_ERROR" | grep -oE "in ${NGINX_VALIDATE_HOSTS}:[0-9]+" | head -n 1 | sed -E 's/^in //; s/:[0-9]+$//' || true)"
+	NGINX_VALIDATE_ERROR="$(nginx_validate_error "$NGINX_VALIDATE_OUTPUT")"
+	# The files to move aside, one per line
+	NGINX_VALIDATE_FILES="$(echo "$NGINX_VALIDATE_ERROR" | grep -oE "in ${NGINX_VALIDATE_HOSTS}:[0-9]+" | head -n 1 | sed -E 's/^in //; s/:[0-9]+$//' || true)"
 
-	# Some errors, eg. a missing certificate file, don't name the config file: blame the
-	# first host config that loads a file named in the error with one of its own ssl_*
-	# directives. Any other mention (eg. its access_log) is not enough.
-	if [ -z "$NGINX_VALIDATE_FILE" ] && ! echo "$NGINX_VALIDATE_ERROR" | grep -qE ' in /[^ ]+:[0-9]+$'; then
-		for NGINX_VALIDATE_PATH in $(echo "$NGINX_VALIDATE_ERROR" | grep -oE '"/[^" ]+"' | tr -d '"' || true); do
-			for NGINX_VALIDATE_CANDIDATE in $(grep -lF "$NGINX_VALIDATE_PATH" /data/nginx/proxy_host/*.conf /data/nginx/redirection_host/*.conf /data/nginx/dead_host/*.conf /data/nginx/stream/*.conf 2>/dev/null || true); do
-				if awk -v p="$NGINX_VALIDATE_PATH" '{ sub(/#.*/, "") } $1 ~ /^ssl_[a-z_]+$/ && index($0, p) { found = 1 } END { exit !found }' "$NGINX_VALIDATE_CANDIDATE"; then
-					NGINX_VALIDATE_FILE="$NGINX_VALIDATE_CANDIDATE"
+	# Some errors, eg. a missing certificate file or a log file nginx can't open, don't name
+	# the config file. The candidates are the host configs that mention a path named in the
+	# error (any directive, comments don't count). A mention alone is not enough: each
+	# candidate is moved aside in turn and only the one whose removal makes the error go away
+	# (the test passes, or the remaining error no longer names the path) is blamed. The others
+	# are put back. When no single candidate helps (eg. a certificate several hosts share),
+	# all of them are moved aside together, and if that helps, all of them are blamed.
+	if [ -z "$NGINX_VALIDATE_FILES" ] && ! echo "$NGINX_VALIDATE_ERROR" | grep -qE ' in /[^ ]+:[0-9]+$'; then
+		while IFS= read -r NGINX_VALIDATE_PATH; do
+			[ -n "$NGINX_VALIDATE_PATH" ] || continue
+			NGINX_VALIDATE_CANDIDATES=()
+			while IFS= read -r NGINX_VALIDATE_CANDIDATE; do
+				[ -n "$NGINX_VALIDATE_CANDIDATE" ] || continue
+				if awk -v p="$NGINX_VALIDATE_PATH" '{ sub(/#.*/, "") } index($0, p) { found = 1 } END { exit !found }' "$NGINX_VALIDATE_CANDIDATE"; then
+					NGINX_VALIDATE_CANDIDATES+=("$NGINX_VALIDATE_CANDIDATE")
+				fi
+			done <<<"$(grep -lF -- "$NGINX_VALIDATE_PATH" /data/nginx/proxy_host/*.conf /data/nginx/redirection_host/*.conf /data/nginx/dead_host/*.conf /data/nginx/stream/*.conf 2>/dev/null || true)"
+
+			for NGINX_VALIDATE_CANDIDATE in "${NGINX_VALIDATE_CANDIDATES[@]}"; do
+				NGINX_VALIDATE_RETRY="$(nginx_validate_test_aside "$NGINX_VALIDATE_CANDIDATE")"
+				if echo "$NGINX_VALIDATE_RETRY" | grep -q 'test is successful' \
+					|| ! nginx_validate_error "$NGINX_VALIDATE_RETRY" | grep -qF -- "$NGINX_VALIDATE_PATH"; then
+					NGINX_VALIDATE_FILES="$NGINX_VALIDATE_CANDIDATE"
 					break 2
 				fi
 			done
-		done
+
+			if [ "${#NGINX_VALIDATE_CANDIDATES[@]}" -gt 1 ]; then
+				NGINX_VALIDATE_RETRY="$(nginx_validate_test_aside "${NGINX_VALIDATE_CANDIDATES[@]}")"
+				if echo "$NGINX_VALIDATE_RETRY" | grep -q 'test is successful' \
+					|| ! nginx_validate_error "$NGINX_VALIDATE_RETRY" | grep -qF -- "$NGINX_VALIDATE_PATH"; then
+					NGINX_VALIDATE_FILES="$(printf '%s\n' "${NGINX_VALIDATE_CANDIDATES[@]}")"
+					break
+				fi
+			fi
+		done <<<"$(echo "$NGINX_VALIDATE_ERROR" | grep -oE '"/[^" ]+"' | tr -d '"' || true)"
 	fi
 
-	if [ -z "$NGINX_VALIDATE_FILE" ] || [ ! -f "$NGINX_VALIDATE_FILE" ]; then
+	if [ -z "$NGINX_VALIDATE_FILES" ]; then
 		log_error 'nginx config test failed and no host config could be blamed:'
 		echo "$NGINX_VALIDATE_OUTPUT" | grep -v '/var/log/nginx/error.log' >&2 || true
 		break
 	fi
 
-	log_error "Disabling ${NGINX_VALIDATE_FILE}, nginx rejected it:"
-	echo "$NGINX_VALIDATE_ERROR" >&2
+	NGINX_VALIDATE_MOVED=0
+	while IFS= read -r NGINX_VALIDATE_FILE; do
+		if [ -z "$NGINX_VALIDATE_FILE" ] || [ ! -f "$NGINX_VALIDATE_FILE" ]; then
+			continue
+		fi
+		log_error "Disabling ${NGINX_VALIDATE_FILE}, nginx rejected it:"
+		echo "$NGINX_VALIDATE_ERROR" >&2
+		if mv -f "$NGINX_VALIDATE_FILE" "${NGINX_VALIDATE_FILE}.err"; then
+			NGINX_VALIDATE_MOVED=$((NGINX_VALIDATE_MOVED + 1))
+		else
+			log_error "Could not move ${NGINX_VALIDATE_FILE}"
+		fi
+	done <<<"$NGINX_VALIDATE_FILES"
 
-	if ! mv -f "$NGINX_VALIDATE_FILE" "${NGINX_VALIDATE_FILE}.err"; then
-		log_error "Could not move ${NGINX_VALIDATE_FILE}"
+	if [ "$NGINX_VALIDATE_MOVED" -eq 0 ]; then
+		log_error 'nginx config test failed and the blamed host config could not be moved:'
+		echo "$NGINX_VALIDATE_OUTPUT" | grep -v '/var/log/nginx/error.log' >&2 || true
 		break
 	fi
 
 	NGINX_VALIDATE_COUNT=$((NGINX_VALIDATE_COUNT + 1))
 done
 
-unset NGINX_VALIDATE_MAX NGINX_VALIDATE_COUNT NGINX_VALIDATE_HOSTS NGINX_VALIDATE_OUTPUT NGINX_VALIDATE_ERROR NGINX_VALIDATE_FILE NGINX_VALIDATE_PATH NGINX_VALIDATE_CANDIDATE
+unset -f nginx_validate_test nginx_validate_error nginx_validate_test_aside
+unset NGINX_VALIDATE_MAX NGINX_VALIDATE_COUNT NGINX_VALIDATE_HOSTS NGINX_VALIDATE_OUTPUT NGINX_VALIDATE_ERROR NGINX_VALIDATE_FILES NGINX_VALIDATE_FILE NGINX_VALIDATE_PATH NGINX_VALIDATE_CANDIDATE NGINX_VALIDATE_CANDIDATES NGINX_VALIDATE_RETRY NGINX_VALIDATE_ASIDE NGINX_VALIDATE_CONF NGINX_VALIDATE_MOVED

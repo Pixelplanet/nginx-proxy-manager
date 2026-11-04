@@ -156,6 +156,39 @@ describe("preflightLocation", () => {
 		assert.equal(isVariableHost("app"), false);
 	});
 
+	it("quarantines forward paths that would break the proxy_pass / rewrite directive", () => {
+		const cases = [
+			{ forward_host: "app/x;y" },
+			{ forward_host: "app/a}" },
+			{ forward_host: "app/{a" },
+			{ forward_host: "app/#x" },
+			{ forward_host: 'app/"q' },
+			{ forward_host: "app/'q" },
+			{ forward_host: "app/a`b" },
+			{ forward_host: "app/a\\b" },
+			{ forward_host: "app/a b" },
+			{ forward_host: "app", forward_path: "/x;return 200" },
+			{ forward_host: "app", forward_path: "/a\tb" },
+			{ forward_host: "$backend/x;y" },
+		];
+		for (const loc of cases) {
+			const res = preflightLocation(prepareLocation({ ...base, path: "/a", ...loc }));
+			assert.deepEqual(res, { status: "quarantined", message: MESSAGES.invalidPath }, JSON.stringify(loc));
+		}
+	});
+
+	it("allows forward paths with nginx variables", () => {
+		for (const loc of [
+			{ forward_host: "app/api/$1" },
+			{ forward_host: "app", forward_path: "/api/$host/x" },
+			{ forward_host: "app", forward_path: "/api/$" + "{host}x" },
+			{ forward_host: "$backend/sub/$1" },
+			{ forward_host: "app", forward_path: "/a-b_c.d~e%20f?x=1&y=2" },
+		]) {
+			assert.equal(preflightLocation(prepareLocation({ ...base, path: "/a", ...loc })), null, JSON.stringify(loc));
+		}
+	});
+
 	it("quarantines unbalanced advanced config", () => {
 		const res = preflightLocation(prepareLocation({ ...base, path: "/a", advanced_config: "if ($x) {" }));
 		assert.equal(res.message, MESSAGES.unbalancedBraces);

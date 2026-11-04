@@ -21,6 +21,7 @@ import fs from "node:fs";
 import net from "node:net";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { scanNginxConfig } from "./nginx-tokenize.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -32,6 +33,8 @@ const CONFIG_VERSION_MARKER = `# npm-config-version: ${CONFIG_VERSION}`;
 
 // Characters that would break out of the generated nginx directive
 const INVALID_HOST_CHARS = /[\s;{}'"`\\$#]/;
+// The same for the forward path, which may hold nginx variables (`/api/$1`)
+const INVALID_PATH_CHARS = /[\s;{}'"`\\#]/;
 
 // A forward host that is a single nginx variable, eg. `$backend` with `set $backend app;` in the advanced
 // config (a common workaround for "host not found in upstream"). It is rendered literally as it always was:
@@ -48,6 +51,8 @@ const MESSAGES = {
 	invalidHost:
 		"The forward host contains characters that are not allowed (spaces, quotes, ; { } $ # or \\). A single nginx variable such as $backend is allowed.",
 	emptyHost: "The forward host is empty.",
+	invalidPath:
+		"The forward path contains characters that are not allowed (spaces, quotes, ; { } # or \\). nginx variables such as $1 are allowed.",
 	emptyPath: "The location path is empty.",
 	unbalancedBraces: "The advanced configuration of this location has unbalanced { } braces.",
 	unresolved: (host) =>
@@ -164,60 +169,8 @@ const prepareLocation = (location) => {
  * @returns {boolean}
  */
 const bracesBalanced = (text) => {
-	const str = `${text || ""}`;
-	let depth = 0;
-	let quote = null;
-	let tokenStart = true;
-	for (let i = 0; i < str.length; i++) {
-		const ch = str[i];
-		if (quote) {
-			if (ch === "\\") {
-				i++;
-			} else if (ch === quote) {
-				quote = null;
-				tokenStart = false;
-			}
-			continue;
-		}
-		if (/\s/.test(ch) || ch === ";") {
-			tokenStart = true;
-			continue;
-		}
-		if (ch === "\\") {
-			i++;
-			tokenStart = false;
-			continue;
-		}
-		if (ch === "{") {
-			if (!tokenStart && str[i - 1] === "$") {
-				// ${var}
-				continue;
-			}
-			depth++;
-			tokenStart = true;
-			continue;
-		}
-		if (!tokenStart) {
-			continue;
-		}
-		if (ch === "#") {
-			const eol = str.indexOf("\n", i);
-			if (eol === -1) {
-				break;
-			}
-			i = eol;
-		} else if (ch === '"' || ch === "'") {
-			quote = ch;
-		} else if (ch === "}") {
-			depth--;
-			if (depth < 0) {
-				return false;
-			}
-		} else {
-			tokenStart = false;
-		}
-	}
-	return depth === 0 && quote === null;
+	const scan = scanNginxConfig(text);
+	return scan.balanced && !scan.unterminated;
 };
 
 /**
@@ -245,6 +198,10 @@ const preflightLocation = (loc) => {
 	}
 	if (!isVariableHost(loc.forward_host) && INVALID_HOST_CHARS.test(loc.forward_host)) {
 		return { status: "quarantined", message: MESSAGES.invalidHost };
+	}
+	// `${name}` is a variable too
+	if (loc.forward_path && INVALID_PATH_CHARS.test(loc.forward_path.replace(/\$\{[A-Za-z0-9_]+\}/g, "$x"))) {
+		return { status: "quarantined", message: MESSAGES.invalidPath };
 	}
 	if (!bracesBalanced(loc.advanced_config)) {
 		return { status: "quarantined", message: MESSAGES.unbalancedBraces };
