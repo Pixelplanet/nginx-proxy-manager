@@ -16,7 +16,7 @@ describe('Proxy Host custom location resilience', () => {
 	 * @param {string}  path
 	 */
 	const request = (path) => {
-		return cy.exec(`curl --noproxy '*' -s -w '\n%{http_code}' -H 'Host: ${domain}' http://fullstack${path}`)
+		return cy.task('exec', { command: `curl --noproxy '*' -s -w '\n%{http_code}' -H 'Host: ${domain}' http://fullstack${path}` })
 			.then((result) => {
 				expect(result.exitCode).to.eq(0);
 				const lines = result.stdout.trim().split('\n');
