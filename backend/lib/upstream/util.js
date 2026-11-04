@@ -294,10 +294,8 @@ const withTimeout = (promise, ms, onTimeout) => {
 };
 
 export {
-	DOCKER_EMBEDDED_DNS,
-	RESOLVERS_CONF,
-	RESOLV_CONF,
 	createLimiter,
+	DOCKER_EMBEDDED_DNS,
 	intToIpv4,
 	ipv4ToInt,
 	isValidHost,
@@ -307,6 +305,8 @@ export {
 	parsePtrName,
 	parseResolvConfNameservers,
 	parseResolversConf,
+	RESOLV_CONF,
+	RESOLVERS_CONF,
 	readNginxResolvers,
 	readResolvConfNameservers,
 	splitHostPath,

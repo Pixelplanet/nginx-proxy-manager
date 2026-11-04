@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import net from "node:net";
 import { after, before, describe, it } from "node:test";
-import { checkTarget, checkTargets, resolverLookup, tcpConnect, targetKey } from "../lib/upstream/check.js";
+import { checkTarget, checkTargets, resolverLookup, targetKey, tcpConnect } from "../lib/upstream/check.js";
 
 const listen = (server) =>
 	new Promise((resolve) => {
