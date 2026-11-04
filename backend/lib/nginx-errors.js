@@ -180,6 +180,11 @@ const RULES = [
 		hint: null,
 	},
 	{
+		regex: /location "([^"]+)" cannot be inside the (exact|named) location "([^"]+)"/,
+		text: (m) => `the location "${m[1]}" can't be placed inside the ${m[2]} location "${m[3]}"`,
+		hint: "Exact (=) and named (@) locations can't contain other locations.",
+	},
+	{
 		regex: /"location" directive is not allowed here/,
 		text: () => 'a "location" block is not allowed here',
 		hint: "Locations can only be placed in a server block or inside another location.",

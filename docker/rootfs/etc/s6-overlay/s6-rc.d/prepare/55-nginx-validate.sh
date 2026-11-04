@@ -26,6 +26,17 @@ while [ "$NGINX_VALIDATE_COUNT" -lt "$NGINX_VALIDATE_MAX" ]; do
 
 	NGINX_VALIDATE_FILE="$(echo "$NGINX_VALIDATE_OUTPUT" | grep -v '/var/log/nginx/error.log' | grep -oE '/data/nginx/(proxy_host|redirection_host|dead_host|stream)/[0-9]+\.conf' | head -n 1 || true)"
 
+	# Some errors, eg. a missing certificate file, don't name the config file:
+	# blame the first host config that references a file named in the error
+	if [ -z "$NGINX_VALIDATE_FILE" ]; then
+		for NGINX_VALIDATE_PATH in $(echo "$NGINX_VALIDATE_OUTPUT" | grep -E '\[emerg\]' | grep -oE '"/[^" ]+"' | tr -d '"' || true); do
+			NGINX_VALIDATE_FILE="$(grep -lF "$NGINX_VALIDATE_PATH" /data/nginx/proxy_host/*.conf /data/nginx/redirection_host/*.conf /data/nginx/dead_host/*.conf /data/nginx/stream/*.conf 2>/dev/null | head -n 1 || true)"
+			if [ -n "$NGINX_VALIDATE_FILE" ]; then
+				break
+			fi
+		done
+	fi
+
 	if [ -z "$NGINX_VALIDATE_FILE" ] || [ ! -f "$NGINX_VALIDATE_FILE" ]; then
 		log_error 'nginx config test failed and no host config could be blamed:'
 		echo "$NGINX_VALIDATE_OUTPUT" | grep -v '/var/log/nginx/error.log' >&2 || true
@@ -43,4 +54,4 @@ while [ "$NGINX_VALIDATE_COUNT" -lt "$NGINX_VALIDATE_MAX" ]; do
 	NGINX_VALIDATE_COUNT=$((NGINX_VALIDATE_COUNT + 1))
 done
 
-unset NGINX_VALIDATE_MAX NGINX_VALIDATE_COUNT NGINX_VALIDATE_OUTPUT NGINX_VALIDATE_FILE
+unset NGINX_VALIDATE_MAX NGINX_VALIDATE_COUNT NGINX_VALIDATE_OUTPUT NGINX_VALIDATE_FILE NGINX_VALIDATE_PATH

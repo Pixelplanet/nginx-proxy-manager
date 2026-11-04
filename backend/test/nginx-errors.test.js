@@ -98,6 +98,10 @@ describe("humaniseNginxMessage", () => {
 		['no "ssl_certificate" is defined for the "listen ... ssl" directive', "SSL is enabled but no certificate is defined"],
 		['invalid parameter "foo"', 'invalid parameter "foo"'],
 		['"location" directive is not allowed here', 'a "location" block is not allowed here'],
+		[
+			'location "y" cannot be inside the exact location "/x"',
+			'the location "y" can\'t be placed inside the exact location "/x"',
+		],
 		['"proxy_pass" directive is not allowed here', 'the "proxy_pass" directive is not allowed here'],
 	];
 

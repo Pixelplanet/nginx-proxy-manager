@@ -473,8 +473,41 @@ const internalNginx = {
 		} catch (err) {
 			const output = err?.message || `${err}`;
 			debug(logger, "Nginx test failed:", output);
-			return { ok: false, parsed: parseNginxTestOutput(output) };
+			return { ok: false, parsed: internalNginx.attributeToHostFile(parseNginxTestOutput(output)) };
 		}
+	},
+
+	/**
+	 * Some errors (eg. `cannot load certificate "/etc/letsencrypt/live/npm-1/fullchain.pem"`) don't name the
+	 * config file. When the message names a file path, the host config that references it is blamed.
+	 *
+	 * @param   {Object} parsed  parsed nginx -t output
+	 * @returns {Object} parsed, with file set when a host config could be found
+	 */
+	attributeToHostFile: (parsed) => {
+		if (parsed.file) {
+			return parsed;
+		}
+		const paths = [...`${parsed.message}`.matchAll(/"(\/[^"\s]+)"/g)].map((m) => m[1]);
+		if (!paths.length) {
+			return parsed;
+		}
+		for (const hostType of Object.keys(HOST_MODELS)) {
+			const dir = `/data/nginx/${hostType}`;
+			let files = [];
+			try {
+				files = fs.readdirSync(dir).filter((f) => /^\d+\.conf$/.test(f));
+			} catch {
+				continue;
+			}
+			for (const file of files) {
+				const text = readFileOrNull(`${dir}/${file}`) || "";
+				if (paths.some((p) => text.includes(p))) {
+					return Object.assign({}, parsed, { file: `${dir}/${file}` });
+				}
+			}
+		}
+		return parsed;
 	},
 
 	/**
