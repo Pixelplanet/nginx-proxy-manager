@@ -177,7 +177,7 @@ describe("UpstreamField", () => {
 
 // Candidates whose host starts with what a user would type for something else
 const prefixData: UpstreamCandidates = {
-	providers: {},
+	providers: data().providers,
 	items: [
 		candidate({ host: "10.0.0.15", label: "10.0.0.15", source: "history", ports: [3000] }),
 		candidate({ host: "app-db", label: "app-db", source: "docker", ports: [5432] }),
