@@ -852,7 +852,7 @@
 		"defaultMessage": "Nginxi konfiguratsioon"
 	},
 	"settings.nginx.regenerate.audit": {
-		"defaultMessage": "{checked} hosti, {offline} võrgust väljas"
+		"defaultMessage": "{checked, plural, one {# host} other {# hosti}}, {offline} võrgust väljas"
 	},
 	"settings.nginx.regenerate.button": {
 		"defaultMessage": "Loo kõik konfiguratsioonid uuesti"

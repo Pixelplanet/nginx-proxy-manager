@@ -852,7 +852,7 @@
 		"defaultMessage": "Nginx Configuration"
 	},
 	"settings.nginx.regenerate.audit": {
-		"defaultMessage": "{checked} hosts, {offline} offline"
+		"defaultMessage": "{checked, plural, one {# host} other {# hosts}}, {offline} offline"
 	},
 	"settings.nginx.regenerate.button": {
 		"defaultMessage": "Regenerate all host configs"
