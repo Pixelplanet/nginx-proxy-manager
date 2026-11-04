@@ -81,6 +81,9 @@ const blameOtherHost = async (parsed, testWithout) => {
  * 1. nginx -t still fails without the new config of the host being configured (when there is one), and
  * 2. the error goes away when the candidate is taken out as well: the test passes, or the remaining
  *    error no longer names that path (another, unrelated host is broken too and is handled next).
+ * When no single candidate passes, eg. a certificate several hosts share (the same
+ * /etc/letsencrypt/live/npm-N/fullchain.pem in each of their files) went missing, all candidates are taken
+ * out together. When that passes they are all blamed (`others`) and repaired or moved aside one by one.
  *
  * @param   {Object}   parsed                     parsed nginx -t output, without a file
  * @param   {Object}   opts
@@ -89,9 +92,16 @@ const blameOtherHost = async (parsed, testWithout) => {
  * @param   {Function} [opts.testWithout]         async () => {ok, parsed}: nginx -t without own.file
  * @param   {Function} opts.testWithoutCandidate  async (file) => {ok, parsed}: nginx -t without own.file
  *                                                (if any) and without the candidate's file
- * @returns {Promise<{action: "conflict"|"heal"|"global", parsed: Object, other?: Object}>} see blameOtherHost()
+ * @param   {Function} [opts.testWithoutCandidates]  async (files) => {ok, parsed}: nginx -t without own.file
+ *                                                (if any) and without all of the files
+ * @returns {Promise<{action: "conflict"|"heal"|"global", parsed: Object, other?: Object, others?: Object[]}>}
+ *          see blameOtherHost(); for "heal", `others` lists every host to repair ({host_type, host_id, file}),
+ *          `other` is the first of them
  */
-const blameUnattributed = async (parsed, { own, listFiles, testWithout, testWithoutCandidate }) => {
+const blameUnattributed = async (
+	parsed,
+	{ own, listFiles, testWithout, testWithoutCandidate, testWithoutCandidates },
+) => {
 	let failure = parsed;
 	if (own?.file && testWithout) {
 		const alone = await testWithout();
@@ -110,6 +120,15 @@ const blameUnattributed = async (parsed, { own, listFiles, testWithout, testWith
 		return { action: "global", parsed: failure };
 	}
 
+	const fixes = (result) => result.ok || !paths.some((p) => `${result.parsed?.message || ""}`.includes(p));
+	const heal = (candidates) => ({
+		action: "heal",
+		parsed: Object.assign({}, failure, { file: candidates[0].file, line: null }),
+		other: candidates[0].other,
+		others: candidates.map(({ file, other }) => Object.assign({ file }, other)),
+	});
+
+	const candidates = [];
 	for (const { file, text } of listFiles()) {
 		if (file === own?.file) {
 			continue;
@@ -118,13 +137,43 @@ const blameUnattributed = async (parsed, { own, listFiles, testWithout, testWith
 		if (!other || !paths.some((p) => mentionsPath(text, p))) {
 			continue;
 		}
-		const without = await testWithoutCandidate(file);
-		const remaining = without.ok ? "" : `${without.parsed?.message || ""}`;
-		if (without.ok || !paths.some((p) => remaining.includes(p))) {
-			return { action: "heal", parsed: Object.assign({}, failure, { file, line: null }), other };
+		candidates.push({ file, other });
+		if (fixes(await testWithoutCandidate(file))) {
+			return heal([{ file, other }]);
+		}
+	}
+	// A path several hosts mention (a shared certificate): only all of them together make the error go away
+	if (candidates.length > 1 && testWithoutCandidates) {
+		if (fixes(await testWithoutCandidates(candidates.map((c) => c.file)))) {
+			return heal(candidates);
 		}
 	}
 	return { action: "global", parsed: failure };
+};
+
+/**
+ * A nested configure (regenerating another host while a host is being saved, see healOtherHost() in
+ * internal/nginx.js) failed. When the host being saved (the protected files) is part of the cause, the other
+ * host must not be disabled: the save is a conflict instead. That is the case when
+ * - the failure names a protected file, or
+ * - the test passes with the protected files moved aside (eg. both hosts claim `listen ... default_server`,
+ *   reported in either file, or the other host's regenerated config only fails together with the new one).
+ *
+ * @param   {Object}   opts
+ * @param   {Object}   opts.parsed               parsed nginx -t output of the failure
+ * @param   {String[]} opts.protect              config files of the host(s) being saved
+ * @param   {boolean}  [opts.namesProtected]     the blame step already found a protected file at fault
+ * @param   {Function} opts.testWithoutProtected async () => {ok}: nginx -t with the protected files moved aside
+ * @returns {Promise<boolean>} true when the host being saved is (part of) the cause
+ */
+const causedByProtected = async ({ parsed, protect, namesProtected, testWithoutProtected }) => {
+	if (!protect?.length) {
+		return false;
+	}
+	if (namesProtected || (parsed?.file && protect.includes(parsed.file))) {
+		return true;
+	}
+	return (await testWithoutProtected()).ok === true;
 };
 
 /**
@@ -137,15 +186,20 @@ const blameUnattributed = async (parsed, { own, listFiles, testWithout, testWith
  * @param   {Number}   opts.depth       recursion depth, regenerating only happens at depth 0
  * @param   {Function} opts.regenerate  async (): configure the host again, throws when that fails
  * @param   {Function} opts.disable     async (regenerateError?): move the file aside, mark the host offline
+ * @param   {Function} [opts.isAbort]   (err) => boolean: a regenerate error that must not disable the host
+ *                                      (the host being saved caused it, see causedByProtected()), rethrown
  * @returns {Promise<"regenerated"|"disabled">}
  */
-const regenerateOrDisable = async ({ enabled, depth, regenerate, disable }) => {
+const regenerateOrDisable = async ({ enabled, depth, regenerate, disable, isAbort }) => {
 	let regenerateError = null;
 	if (enabled && (depth || 0) < 1) {
 		try {
 			await regenerate();
 			return "regenerated";
 		} catch (err) {
+			if (isAbort?.(err)) {
+				throw err;
+			}
 			regenerateError = err;
 		}
 	}
@@ -153,4 +207,12 @@ const regenerateOrDisable = async ({ enabled, depth, regenerate, disable }) => {
 	return "disabled";
 };
 
-export { attributeToHostFile, blameOtherHost, blameUnattributed, errorPaths, mentionsPath, regenerateOrDisable };
+export {
+	attributeToHostFile,
+	blameOtherHost,
+	blameUnattributed,
+	causedByProtected,
+	errorPaths,
+	mentionsPath,
+	regenerateOrDisable,
+};

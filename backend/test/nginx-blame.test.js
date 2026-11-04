@@ -4,6 +4,7 @@ import {
 	attributeToHostFile,
 	blameOtherHost,
 	blameUnattributed,
+	causedByProtected,
 	errorPaths,
 	mentionsPath,
 	regenerateOrDisable,
@@ -157,6 +158,74 @@ describe("blameUnattributed", () => {
 		assert.equal(out.other.host_id, 5);
 	});
 
+	describe("a path several hosts mention (shared certificate)", () => {
+		const B = { file: "/data/nginx/proxy_host/6.conf", text: `ssl_certificate ${CERT};` };
+		const C = { file: "/data/nginx/redirection_host/2.conf", text: `ssl_certificate ${CERT};` };
+		const D = { file: "/data/nginx/proxy_host/8.conf", text: "return 200;" };
+
+		it("takes all candidates out together when no single one helps, and blames all of them", async () => {
+			const groups = [];
+			const out = await blameUnattributed(certError, {
+				own: { file: OWN },
+				listFiles: () => [{ file: OWN, text: "" }, B, D, C],
+				testWithout: async () => fail(certError.message),
+				testWithoutCandidate: async () => fail(certError.message),
+				testWithoutCandidates: async (files) => {
+					groups.push(files);
+					return files.includes(B.file) && files.includes(C.file) ? { ok: true } : fail(certError.message);
+				},
+			});
+			assert.equal(out.action, "heal");
+			// the saved host and hosts that don't mention the path are not part of the group
+			assert.deepEqual(groups, [[B.file, C.file]]);
+			assert.deepEqual(out.others, [
+				{ file: B.file, host_type: "proxy_host", host_id: 6 },
+				{ file: C.file, host_type: "redirection_host", host_id: 2 },
+			]);
+			assert.deepEqual(out.other, { host_type: "proxy_host", host_id: 6 });
+		});
+
+		it("works without a saved host (reload / boot)", async () => {
+			const out = await blameUnattributed(certError, {
+				listFiles: () => [B, C],
+				testWithoutCandidate: async () => fail(certError.message),
+				testWithoutCandidates: async () => fail('open() "/data/logs/other.log" failed'),
+			});
+			assert.equal(out.action, "heal");
+			assert.equal(out.others.length, 2);
+		});
+
+		it("is global when the group doesn't help either", async () => {
+			const out = await blameUnattributed(certError, {
+				listFiles: () => [B, C],
+				testWithoutCandidate: async () => fail(certError.message),
+				testWithoutCandidates: async () => fail(certError.message),
+			});
+			assert.equal(out.action, "global");
+		});
+
+		it("is still the saved host's own error when its config mentions the path", () => {
+			const own = { file: OWN, text: `ssl_certificate ${CERT};` };
+			assert.equal(attributeToHostFile(certError, own).file, OWN);
+		});
+
+		it("is a conflict of the saved host when the test passes without it", async () => {
+			let groups = 0;
+			const out = await blameUnattributed(certError, {
+				own: { file: OWN },
+				listFiles: () => [B, C],
+				testWithout: async () => ({ ok: true }),
+				testWithoutCandidate: async () => fail(certError.message),
+				testWithoutCandidates: async () => {
+					groups++;
+					return { ok: true };
+				},
+			});
+			assert.equal(out.action, "conflict");
+			assert.equal(groups, 0);
+		});
+	});
+
 	it("is global when nothing mentions the path", async () => {
 		const out = await blameUnattributed(LOG_ERROR, {
 			listFiles: () => [UNRELATED],
@@ -166,7 +235,74 @@ describe("blameUnattributed", () => {
 	});
 });
 
+describe("causedByProtected", () => {
+	const SAVED = "/data/nginx/proxy_host/1.conf";
+	const never = async () => {
+		throw new Error("must not test");
+	};
+
+	it("is never the case outside a nested configure", async () => {
+		assert.equal(
+			await causedByProtected({ parsed: { file: SAVED }, protect: [], testWithoutProtected: never }),
+			false,
+		);
+	});
+
+	it("is the case when the failure names the saved host's file", async () => {
+		assert.equal(
+			await causedByProtected({ parsed: { file: SAVED }, protect: [SAVED], testWithoutProtected: never }),
+			true,
+		);
+		assert.equal(
+			await causedByProtected({
+				parsed: { file: "/data/nginx/proxy_host/5.conf" },
+				protect: [SAVED],
+				namesProtected: true,
+				testWithoutProtected: never,
+			}),
+			true,
+		);
+	});
+
+	it("is the case when the regenerated host passes without the saved host", async () => {
+		// eg. the regenerated host and the saved host both claim `listen 80 default_server`
+		const parsed = { file: "/data/nginx/proxy_host/5.conf", line: 3, message: "a duplicate default server" };
+		assert.equal(
+			await causedByProtected({ parsed, protect: [SAVED], testWithoutProtected: async () => ({ ok: true }) }),
+			true,
+		);
+		assert.equal(
+			await causedByProtected({
+				parsed,
+				protect: [SAVED],
+				testWithoutProtected: async () => ({ ok: false, parsed }),
+			}),
+			false,
+		);
+	});
+});
+
 describe("regenerateOrDisable", () => {
+	it("never disables when the regenerate error is an abort, passing it on", async () => {
+		const abort = Object.assign(new Error("conflicts with the host being saved"), { protectedConflict: true });
+		let disabled = false;
+		await assert.rejects(
+			regenerateOrDisable({
+				enabled: true,
+				depth: 0,
+				regenerate: async () => {
+					throw abort;
+				},
+				disable: async () => {
+					disabled = true;
+				},
+				isAbort: (err) => err.protectedConflict === true,
+			}),
+			(err) => err === abort,
+		);
+		assert.equal(disabled, false);
+	});
+
 	it("regenerates an enabled host instead of disabling it", async () => {
 		let disabled = false;
 		const out = await regenerateOrDisable({

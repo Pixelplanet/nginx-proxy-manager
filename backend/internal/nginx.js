@@ -4,7 +4,13 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import _ from "lodash";
 import errs from "../lib/error.js";
-import { attributeToHostFile, blameOtherHost, blameUnattributed, regenerateOrDisable } from "../lib/nginx-blame.js";
+import {
+	attributeToHostFile,
+	blameOtherHost,
+	blameUnattributed,
+	causedByProtected,
+	regenerateOrDisable,
+} from "../lib/nginx-blame.js";
 import {
 	capitalise,
 	humaniseNginxMessage,
@@ -59,8 +65,11 @@ const HOST_LABELS = {
 	stream: "Stream",
 };
 
-// How often a broken file of another host may be repaired / moved aside in one test
-const MAX_HEAL_ITERATIONS = 100;
+// How often broken files of other hosts may be repaired / moved aside in one configure or reload. Each repair
+// runs a nested configure (DNS lookups, several nginx -t) while holding the lock, which blocks every save.
+// A group of hosts sharing a broken path (see blameUnattributed()) counts once.
+const MAX_HEAL_ITERATIONS = 10;
+const TOO_MANY_BROKEN_HOSTS = `Too many broken host configs to repair in one go (more than ${MAX_HEAL_ITERATIONS}). Regenerate all host configs (restart NPM or run backend/scripts/regenerate-config), then try again.`;
 // Extra configure iterations on top of one per location
 const EXTRA_CONFIGURE_ITERATIONS = 10;
 // When the startup reconcile tries hosts again whose upstream names did not resolve yet
@@ -187,7 +196,7 @@ const internalNginx = {
 		let failure = null;
 
 		for (;;) {
-			if (quarantines > maxQuarantines || heals > MAX_HEAL_ITERATIONS) {
+			if (quarantines > maxQuarantines) {
 				failure = { scope: "host", parsed: { file: filename, line: null, message: "", output: "" } };
 				break;
 			}
@@ -240,6 +249,7 @@ const internalNginx = {
 					listFiles: internalNginx.listManagedFiles,
 					testWithout: () => internalNginx.testWithout(filename, configText),
 					testWithoutCandidate: (file) => internalNginx.testAside([filename, file]),
+					testWithoutCandidates: (files) => internalNginx.testAside([filename, ...files]),
 				});
 			}
 			if (blame) {
@@ -248,20 +258,45 @@ const internalNginx = {
 					break;
 				}
 				const protect = opts.protect || [];
-				const otherFile =
-					blame.action === "heal"
-						? internalNginx.getConfigName(blame.other.host_type, blame.other.host_id)
-						: null;
-				if (otherFile && protect.includes(otherFile)) {
+				const others = blame.action === "heal" ? blame.others || [blame.other] : [];
+				if (
+					others.some((other) =>
+						protect.includes(internalNginx.getConfigName(other.host_type, other.host_id)),
+					)
+				) {
 					// A nested configure (regenerating another host, see healOtherHost()) never touches the
-					// host being saved: give up on the host being regenerated instead
-					failure = { scope: "host", parsed: blame.parsed };
+					// host being saved: the host being saved is at fault, see the protect check below
+					failure = { scope: "host", parsed: blame.parsed, namesProtected: true };
 					break;
 				}
-				if (
-					otherFile &&
-					(await internalNginx.healOtherHost(blame.other, blame.parsed, opts.depth, [...protect, filename]))
-				) {
+				if (others.length && heals >= MAX_HEAL_ITERATIONS) {
+					logger.error(`${hostLabel(hostType, host)}: ${TOO_MANY_BROKEN_HOSTS}`);
+					failure = { scope: "global", tooMany: true, parsed: blame.parsed };
+					break;
+				}
+				let healed = false;
+				try {
+					for (const other of others) {
+						const otherParsed =
+							others.length > 1
+								? Object.assign({}, blame.parsed, {
+										file: internalNginx.getConfigName(other.host_type, other.host_id),
+									})
+								: blame.parsed;
+						if (await internalNginx.healOtherHost(other, otherParsed, opts.depth, [...protect, filename])) {
+							healed = true;
+						}
+					}
+				} catch (err) {
+					if (!err.protectedConflict) {
+						throw err;
+					}
+					// Regenerating the other host failed because of this host's new config: this change conflicts
+					// with it. The other host keeps its file, nothing is disabled.
+					failure = { scope: "host", parsed: err.parsed, conflict: true };
+					break;
+				}
+				if (healed) {
 					heals++;
 					continue;
 				}
@@ -273,10 +308,31 @@ const internalNginx = {
 			break;
 		}
 
+		if (
+			failure &&
+			opts.protect?.length &&
+			(await causedByProtected({
+				parsed: failure.parsed,
+				protect: opts.protect,
+				namesProtected: failure.namesProtected,
+				testWithoutProtected: () => internalNginx.testAside(opts.protect),
+			}))
+		) {
+			// A nested configure (regenerating this host while another host is being saved) failed because of the
+			// host being saved: that save must fail as a conflict, this host must not be disabled for it
+			await internalNginx.restoreHost(model, host, filename, previous, previousErr, heals > 0);
+			const abort = new Error(`Regenerating ${hostLabel(hostType, host)} conflicts with the host being saved`);
+			abort.protectedConflict = true;
+			abort.parsed = failure.parsed;
+			throw abort;
+		}
+
 		if (failure) {
-			const error = failure.conflict
-				? internalNginx.buildConflictError(hostType, host, failure.parsed)
-				: internalNginx.buildConfigError(failure.scope, hostType, host, failure.parsed, configText);
+			const error = failure.tooMany
+				? new errs.NginxConfigError(TOO_MANY_BROKEN_HOSTS, { kind: "nginx_config", scope: "global" })
+				: failure.conflict
+					? internalNginx.buildConflictError(hostType, host, failure.parsed)
+					: internalNginx.buildConfigError(failure.scope, hostType, host, failure.parsed, configText);
 			if (opts.offlineOnError && failure.scope === "host") {
 				// Bulk mode: don't fail the whole operation because of one host, take it offline instead
 				internalNginx.renameConfigAsErrorSync(filename);
@@ -542,6 +598,8 @@ const internalNginx = {
 		await regenerateOrDisable({
 			enabled: !!row?.enabled,
 			depth: depth || 0,
+			// the host being saved caused the failure: no disabling, configureHost() turns it into a conflict
+			isAbort: (err) => err?.protectedConflict === true,
 			regenerate: async () => {
 				await internalNginx.configureHost(model, other.host_type, row, {
 					reload: false,
@@ -770,30 +828,46 @@ const internalNginx = {
 	 * @returns {Promise}
 	 */
 	testAndHeal: async () => {
-		for (let i = 0; i < MAX_HEAL_ITERATIONS; i++) {
+		for (let i = 0; i <= MAX_HEAL_ITERATIONS; i++) {
 			const result = await internalNginx.runTest();
 			if (result.ok) {
 				return;
 			}
-			let parsed = result.parsed;
-			let other = parseManagedFile(parsed.file);
-			if (!other && !parsed.file) {
-				// eg. a log file that can't be opened: blame the host whose removal makes the error go away
+			if (i === MAX_HEAL_ITERATIONS) {
+				break;
+			}
+			const parsed = result.parsed;
+			const named = parseManagedFile(parsed.file);
+			let targets = named ? [{ other: named, parsed }] : [];
+			if (!named && !parsed.file) {
+				// eg. a log file that can't be opened: blame the host(s) whose removal makes the error go away
 				const blame = await blameUnattributed(parsed, {
 					listFiles: internalNginx.listManagedFiles,
 					testWithoutCandidate: (file) => internalNginx.testAside([file]),
+					testWithoutCandidates: (files) => internalNginx.testAside(files),
 				});
 				if (blame.action === "heal") {
-					other = blame.other;
-					parsed = blame.parsed;
+					targets = (blame.others || [blame.other]).map((other) => ({
+						other,
+						parsed: Object.assign({}, blame.parsed, {
+							file: internalNginx.getConfigName(other.host_type, other.host_id),
+						}),
+					}));
 				}
 			}
-			if (other && (await internalNginx.healOtherHost(other, parsed, 0))) {
+			let healed = false;
+			for (const target of targets) {
+				if (await internalNginx.healOtherHost(target.other, target.parsed, 0)) {
+					healed = true;
+				}
+			}
+			if (healed) {
 				continue;
 			}
 			throw internalNginx.buildConfigError("global", "default", { id: 0 }, result.parsed, "");
 		}
-		throw new errs.NginxConfigError("Nginx kept rejecting the configuration.", {
+		logger.error(TOO_MANY_BROKEN_HOSTS);
+		throw new errs.NginxConfigError(TOO_MANY_BROKEN_HOSTS, {
 			kind: "nginx_config",
 			scope: "global",
 		});

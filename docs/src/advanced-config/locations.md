@@ -147,7 +147,18 @@ Some errors don't name a config file at all, for example
 is blamed on the host being saved when its new config mentions the path. Otherwise the candidates are the hosts
 whose config mentions the path (any directive). A mention alone is never enough: a candidate is only repaired or
 taken out when the check still fails without the host being saved, **and** the error goes away when the candidate is
-taken out as well. If no host passes that test, the save fails with scope `global`.
+taken out as well. When several hosts mention the path, for example hosts that share a certificate that went
+missing, and no single one of them makes the error go away, they are taken out together: if the error goes away
+then, each of them is regenerated and, if it still fails, taken out. If nothing passes that test, the save fails
+with scope `global`.
+
+Regenerating another host never disables it because of the change being saved: when the regenerated config only
+fails together with the new config of the host being saved (for example both claim `listen ... default_server`),
+the save fails with scope `host` as a conflict and the other host keeps its file.
+
+At most 10 rounds of repairs run per save or reload (each one blocks other saves while it runs). After that the
+save fails with scope `global` and the message `Too many broken host configs to repair in one go`: regenerate all
+host configs (restart NPM, or run `backend/scripts/regenerate-config` in the container), then try again.
 
 Save the affected host again once the cause is fixed.
 
@@ -198,8 +209,10 @@ Two steps keep one broken host from stopping nginx, every site, and the admin UI
    (`PUID`/`PGID`). It moves the host config file named in the error (warnings don't count) to `<id>.conf.err` and
    checks again, until nginx accepts the configuration. An error that names no config file, such as a missing
    certificate or a log file nginx can't open, is blamed on a host whose config mentions that file only if moving
-   that host's config aside makes the error go away (each candidate is tried in turn, the others are put back). This never stops the container
-   from starting.
+   that host's config aside makes the error go away (each candidate is tried in turn, the others are put back; when
+   none helps alone, all of them are tried together and, if that helps, all are moved to `.err`). This never stops
+   the container from starting. Files left as `<id>.conf.npm-aside` by an interrupted check are put back first (or
+   deleted when the `.conf` exists).
 2. A few seconds after the backend is up, it regenerates host configs that are missing, were moved to `.err`, or were
    written by an older version (custom locations with the static form only). Then it reloads nginx once. Hosts that
    still fail are shown as offline with the reason.
