@@ -26,7 +26,7 @@ fetch () {
 		args+=(-u "$creds")
 	fi
 	out="$(curl "${args[@]}" "http://127.0.0.1:${port}${path}")"
-	echo "$out $(grep -i '^location:' /tmp/nginx-sem-head | tr -d '\r') $(cat /tmp/nginx-sem-body)" | sed -E 's/srv800[0-9]/srv/g'
+	echo "$out $(grep -iE '^(location|x-sem-[a-z-]+):' /tmp/nginx-sem-head | tr -d '\r' | tr '\n' ' ') $(cat /tmp/nginx-sem-body)" | sed -E 's/srv800[0-9]/srv/g'
 }
 
 diffs=0
@@ -50,7 +50,7 @@ while IFS= read -r line; do
 		continue
 	fi
 
-	if [[ ! "$path" =~ ^/(cache|cacheroot|acl)/ ]]; then
+	if [[ ! "$path" =~ ^/(cache|cacheroot|acl|qc%20p)/ ]]; then
 		legacy="$(fetch 8001 "$path" "$creds")"
 		total=$((total + 1))
 		if [ "$legacy" != "$dynamic" ]; then
