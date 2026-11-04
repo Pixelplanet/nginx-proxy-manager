@@ -431,11 +431,41 @@
 	"error.required": {
 		"defaultMessage": "See on kohustuslik"
 	},
+	"error.unknown": {
+		"defaultMessage": "Tundmatu viga"
+	},
 	"expires.on": {
 		"defaultMessage": "Aegub: {date}"
 	},
 	"footer.github-fork": {
 		"defaultMessage": "Tee GitHubis fork"
+	},
+	"host-status.checked-at": {
+		"defaultMessage": "Viimati seadistatud {date}"
+	},
+	"host-status.config-error": {
+		"defaultMessage": "Nginx ei suutnud selle hosti seadistust laadida, seega on see maas."
+	},
+	"host-status.details": {
+		"defaultMessage": "Näita oleku üksikasju"
+	},
+	"host-status.disabled": {
+		"defaultMessage": "Väljas"
+	},
+	"host-status.error": {
+		"defaultMessage": "Viga"
+	},
+	"host-status.main-target": {
+		"defaultMessage": "Peamine sihtkoht"
+	},
+	"host-status.unreachable": {
+		"defaultMessage": "{where}: {target} pole kättesaadav"
+	},
+	"host-status.view-error-log": {
+		"defaultMessage": "Näita vealogi"
+	},
+	"host-status.warning": {
+		"defaultMessage": "Hoiatus"
 	},
 	"host.flags.block-exploits": {
 		"defaultMessage": "Blokeeri levinud ründed"
@@ -476,11 +506,59 @@
 	"loading": {
 		"defaultMessage": "Laadimine…"
 	},
+	"location-status.disabled": {
+		"defaultMessage": "Väljas"
+	},
+	"location-status.ok": {
+		"defaultMessage": "Aktiivne"
+	},
+	"location-status.quarantined": {
+		"defaultMessage": "Pole aktiivne"
+	},
+	"location-status.quarantined.default": {
+		"defaultMessage": "Nginx lükkas selle asukoha tagasi, seega lülitati see välja. Ülejäänud host töötab edasi."
+	},
+	"location-status.unresolved": {
+		"defaultMessage": "Lahendamata"
+	},
+	"location-status.unresolved.default": {
+		"defaultMessage": "Sihthosti nime ei saa praegu lahendada. Päringud sellele asukohale ebaõnnestuvad, kuni see õnnestub."
+	},
+	"location.advanced": {
+		"defaultMessage": "Täpsemalt"
+	},
 	"location.advanced-config": {
 		"defaultMessage": "Kohandatud Nginx seadistus olemas"
 	},
+	"location.error.duplicate-path": {
+		"defaultMessage": "Teine asukoht kasutab juba teed {path}"
+	},
+	"location.error.has-errors": {
+		"defaultMessage": "Selles asukohas on vigu"
+	},
+	"location.error.host-invalid": {
+		"defaultMessage": "Host sisaldab lubamatuid märke"
+	},
+	"location.error.host-whitespace": {
+		"defaultMessage": "Host ei tohi sisaldada tühikuid"
+	},
+	"location.errors-summary": {
+		"defaultMessage": "Mõnes kohandatud asukohas on vigu"
+	},
 	"location.filter": {
 		"defaultMessage": "Filtreeri tee või sihtkoha järgi"
+	},
+	"location.path-label": {
+		"defaultMessage": "Asukoht"
+	},
+	"location.toggle-enabled": {
+		"defaultMessage": "Lülita see asukoht sisse või välja"
+	},
+	"locations.count": {
+		"defaultMessage": "+{count, plural, one {# asukoht} other {# asukohta}}"
+	},
+	"locations.problems": {
+		"defaultMessage": "{count, plural, one {# probleem} other {# probleemi}}"
 	},
 	"login.2fa-code": {
 		"defaultMessage": "Kinnituskood"
@@ -550,6 +628,9 @@
 	},
 	"nginx-config.placeholder": {
 		"defaultMessage": "# Sisesta siia oma Nginx seadistus omal vastutusel!"
+	},
+	"nginx-error.show-output": {
+		"defaultMessage": "Näita nginxi väljundit"
 	},
 	"no-permission-error": {
 		"defaultMessage": "Selle vaatamiseks sul õigust pole."
@@ -716,6 +797,18 @@
 	"save": {
 		"defaultMessage": "Salvesta"
 	},
+	"save-warning.offline": {
+		"defaultMessage": "Salvestatud, kuid nginx ei suutnud seda hosti laadida, seega on see maas:"
+	},
+	"save-warning.quarantined": {
+		"defaultMessage": "{count, plural, one {# kohandatud asukoht lülitati välja, sest nginx lükkas selle tagasi.} other {# kohandatud asukohta lülitati välja, sest nginx lükkas need tagasi.}}"
+	},
+	"save-warning.title": {
+		"defaultMessage": "Salvestatud hoiatustega"
+	},
+	"save-warning.unresolved": {
+		"defaultMessage": "{count, plural, one {# kohandatud asukoht viitab hostile, mida ei saa praegu lahendada.} other {# kohandatud asukohta viitavad hostidele, mida ei saa praegu lahendada.}}"
+	},
 	"setting": {
 		"defaultMessage": "Seade"
 	},
@@ -787,6 +880,72 @@
 	},
 	"update-available": {
 		"defaultMessage": "Uuendus saadaval: {latestVersion}"
+	},
+	"upstream.check.checking": {
+		"defaultMessage": "Kontrollin…"
+	},
+	"upstream.check.disabled": {
+		"defaultMessage": "Kontroll on välja lülitatud"
+	},
+	"upstream.check.dns_not_found": {
+		"defaultMessage": "Hosti ei leitud"
+	},
+	"upstream.check.dns_timeout": {
+		"defaultMessage": "DNS-päring aegus"
+	},
+	"upstream.check.invalid_host": {
+		"defaultMessage": "Vigane hostinimi"
+	},
+	"upstream.check.ok": {
+		"defaultMessage": "Kättesaadav"
+	},
+	"upstream.check.ok-ms": {
+		"defaultMessage": "Kättesaadav ({ms} ms)"
+	},
+	"upstream.check.resolver_mismatch": {
+		"defaultMessage": "Lahendub ainult /etc/hosts või otsingudomeenide kaudu"
+	},
+	"upstream.check.tcp_refused": {
+		"defaultMessage": "Ühendusest keelduti"
+	},
+	"upstream.check.tcp_timeout": {
+		"defaultMessage": "Ühendus aegus"
+	},
+	"upstream.check.tcp_unreachable": {
+		"defaultMessage": "Host pole kättesaadav"
+	},
+	"upstream.docker-disabled": {
+		"defaultMessage": "Dockeri tuvastuse lubamiseks määra NPM_DOCKER_DISCOVERY=true ja anna NPM-ile ligipääs Dockeri API-le (vaata dokumentatsiooni)."
+	},
+	"upstream.free-text": {
+		"defaultMessage": "Võid sisestada ka mis tahes hostinime või IP-aadressi."
+	},
+	"upstream.group.dns": {
+		"defaultMessage": "Võrgust leitud"
+	},
+	"upstream.group.docker": {
+		"defaultMessage": "Dockeri konteinerid"
+	},
+	"upstream.group.history": {
+		"defaultMessage": "Varem kasutatud"
+	},
+	"upstream.loading": {
+		"defaultMessage": "Otsin sihtkohti…"
+	},
+	"upstream.no-options": {
+		"defaultMessage": "Soovitusi pole, sisesta hostinimi või IP-aadress"
+	},
+	"upstream.ports": {
+		"defaultMessage": "Pordid: {ports}"
+	},
+	"upstream.refresh": {
+		"defaultMessage": "Värskenda soovitusi"
+	},
+	"upstream.use-value": {
+		"defaultMessage": "Kasuta „{value}“"
+	},
+	"upstream.used-by": {
+		"defaultMessage": "kasutab {count, plural, one {# host} other {# hosti}}"
 	},
 	"user": {
 		"defaultMessage": "Kasutaja"
