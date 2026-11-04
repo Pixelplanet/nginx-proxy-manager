@@ -482,6 +482,9 @@
 	"host-test.quarantined": {
 		"defaultMessage": "{count, plural, one {Nginx would disable # custom location} other {Nginx would disable # custom locations}}"
 	},
+	"host-test.rate-limited": {
+		"defaultMessage": "Not checked: too many checks in the last minute"
+	},
 	"host-test.reachability": {
 		"defaultMessage": "Reachability"
 	},

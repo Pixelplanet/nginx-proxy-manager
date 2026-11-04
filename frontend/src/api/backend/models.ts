@@ -320,7 +320,9 @@ export type UpstreamCheckCode =
 	| "tcp_refused"
 	| "tcp_timeout"
 	| "tcp_unreachable"
-	| "disabled";
+	| "disabled"
+	// only from the config test: not probed, the user's check budget is used up
+	| "rate_limited";
 
 export interface UpstreamCheckTarget {
 	host: string;

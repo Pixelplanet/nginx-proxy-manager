@@ -8,6 +8,9 @@ describe('Host config test', () => {
 
 	let token;
 	let hostId;
+	let sslHostId;
+	let certId;
+	let missingCertId;
 
 	const request = (host, path) => {
 		return cy.task('exec', { command: `curl --noproxy '*' -s -w '\n%{http_code}' -H 'Host: ${host}' http://fullstack${path}` })
@@ -197,6 +200,63 @@ describe('Host config test', () => {
 		});
 	});
 
+	it('Should test an SSL host with a new certificate requested without its current certificate', () => {
+		const sslDomain = 'config-test-ssl.example.com';
+
+		cy.createCustomCerts({ domain: sslDomain, certFile: 'config-test-ssl.pem', keyFile: 'config-test-ssl.key.pem' });
+		cy.task('backendApiPost', {
+			token: token,
+			path:  '/api/nginx/certificates',
+			data:  { provider: 'other', nice_name: 'Config test certificate' },
+		}).then((data) => {
+			certId = data.id;
+			cy.task('backendApiPostFiles', {
+				token: token,
+				path:  `/api/nginx/certificates/${certId}/upload`,
+				files: { certificate: 'config-test-ssl.pem', certificate_key: 'config-test-ssl.key.pem' },
+			});
+		});
+		// a certificate without files: nginx can't load it
+		cy.task('backendApiPost', {
+			token: token,
+			path:  '/api/nginx/certificates',
+			data:  { provider: 'other', nice_name: 'Config test certificate without files' },
+		}).then((data) => {
+			missingCertId = data.id;
+		});
+
+		cy.then(() => {
+			cy.task('backendApiPost', {
+				token: token,
+				path:  '/api/nginx/proxy-hosts',
+				data:  proxyHost({ domain_names: [sslDomain], certificate_id: certId, ssl_forced: true, http2_support: true }),
+			}).then((data) => {
+				sslHostId = data.id;
+				expect(data.meta).to.have.property('nginx_online', true);
+			});
+		});
+
+		cy.then(() => {
+			// sanity check: the test does render the certificate it is given
+			testProxyHost(proxyHost({ id: sslHostId, domain_names: [sslDomain], certificate_id: missingCertId })).then((data) => {
+				expect(data).to.include({ ok: false, nginx_online: false });
+			});
+
+			testProxyHost(proxyHost({ id: sslHostId, domain_names: [sslDomain], certificate_id: 'new', ssl_forced: true, http2_support: true, hsts_enabled: true })).then((data) => {
+				cy.validateSwaggerSchema('post', 200, '/nginx/proxy-hosts/test', data);
+				expect(data).to.include({ ok: true, nginx_online: true });
+				expect(data.warnings.map((w) => w.code)).to.deep.eq(['certificate_pending']);
+			});
+
+			cy.task('backendApiGet', {
+				token: token,
+				path:  `/api/nginx/proxy-hosts/${sslHostId}`,
+			}).then((data) => {
+				expect(data).to.include({ certificate_id: certId, ssl_forced: true, http2_support: true, hsts_enabled: false });
+			});
+		});
+	});
+
 	it('Should test redirection hosts, 404 hosts and streams', () => {
 		cy.task('backendApiPost', {
 			token: token,
@@ -260,11 +320,21 @@ describe('Host config test', () => {
 	});
 
 	after(() => {
-		if (hostId) {
-			cy.task('backendApiDelete', {
-				token: token,
-				path:  `/api/nginx/proxy-hosts/${hostId}`,
-			});
+		for (const id of [hostId, sslHostId]) {
+			if (id) {
+				cy.task('backendApiDelete', {
+					token: token,
+					path:  `/api/nginx/proxy-hosts/${id}`,
+				});
+			}
+		}
+		for (const id of [certId, missingCertId]) {
+			if (id) {
+				cy.task('backendApiDelete', {
+					token: token,
+					path:  `/api/nginx/certificates/${id}`,
+				});
+			}
 		}
 	});
 });

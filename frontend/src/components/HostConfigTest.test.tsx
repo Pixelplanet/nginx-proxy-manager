@@ -96,6 +96,37 @@ describe("HostConfigTestResult", () => {
 		expect(alert).toHaveTextContent("nothing was saved");
 	});
 
+	it("shows targets that were not checked because of the rate limit without a failure badge", () => {
+		const result: HostTestResult = {
+			...base,
+			upstreams: [
+				{
+					host: "app",
+					port: 80,
+					ok: false,
+					code: "rate_limited",
+					message: "Reachability was not checked: too many upstream checks in the last minute.",
+					locationIndex: null,
+					path: null,
+				},
+			],
+			warnings: [
+				{
+					code: "upstreams_rate_limited",
+					message:
+						"Reachability was not checked: too many upstream checks in the last minute. Try again in 12 seconds.",
+				},
+			],
+		};
+		const { getByTestId } = render(
+			inForm(<HostConfigTestResult result={result} error={null} testedKey={null} onClose={() => {}} />),
+		);
+		const upstreams = getByTestId("host-test-upstreams");
+		expect(upstreams).toHaveTextContent("Not checked: too many checks in the last minute");
+		expect(upstreams.querySelector(".badge")).toBeNull();
+		expect(getByTestId("host-test-result")).toHaveTextContent("Try again in 12 seconds.");
+	});
+
 	it("shows a rejected host with the nginx error", () => {
 		const result: HostTestResult = {
 			...base,

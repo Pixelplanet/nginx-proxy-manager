@@ -482,6 +482,9 @@
 	"host-test.quarantined": {
 		"defaultMessage": "{count, plural, one {Nginx würde # benutzerdefinierten Pfad deaktivieren} other {Nginx würde # benutzerdefinierte Pfade deaktivieren}}"
 	},
+	"host-test.rate-limited": {
+		"defaultMessage": "Nicht geprüft: zu viele Prüfungen in der letzten Minute"
+	},
 	"host-test.reachability": {
 		"defaultMessage": "Erreichbarkeit"
 	},

@@ -140,7 +140,13 @@ export function HostConfigTestResult({ result, error, testedKey, onClose }: Resu
 								<span className="text-secondary text-break">
 									{u.host}:{u.port}
 								</span>
-								<UpstreamCheckBadge id={`host-test-upstream-${i}`} result={u} />
+								{u.code === "rate_limited" ? (
+									<span className="text-secondary small" data-check="rate_limited">
+										<T id="host-test.rate-limited" />
+									</span>
+								) : (
+									<UpstreamCheckBadge id={`host-test-upstream-${i}`} result={u} />
+								)}
 								{u.code === "disabled" ? (
 									<span className="text-secondary small">
 										<T id="upstream.check.disabled" />

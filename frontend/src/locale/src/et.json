@@ -482,6 +482,9 @@
 	"host-test.quarantined": {
 		"defaultMessage": "{count, plural, one {Nginx keelaks # kohandatud asukoha} other {Nginx keelaks # kohandatud asukohta}}"
 	},
+	"host-test.rate-limited": {
+		"defaultMessage": "Kontrollimata: viimasel minutil liiga palju kontrolle"
+	},
 	"host-test.reachability": {
 		"defaultMessage": "Kättesaadavus"
 	},

@@ -231,7 +231,10 @@ over the stored host. A configuration nginx rejects is not an error here, the an
 would be quarantined. Unresolved locations and unreachable targets don't fail the test, they are listed in
 `nginx_locations` and `upstreams` (same fields as `POST /api/upstreams/check`, plus `location_index` and `path`).
 An invalid body still answers `400`. Testing needs the permission to create hosts of that type, or to edit them
-when `id` is given, and is limited to 30 tests per minute per user.
+when `id` is given, and is limited to 30 tests per minute per user. The targets a test checks count towards the
+same limit of 60 checked targets per minute as `POST /api/upstreams/check`. When that is used up, nginx is still
+tested, but the targets are listed with `code: "rate_limited"` instead of being checked, and `warnings` says when
+to try again.
 
 ## Status in the API
 

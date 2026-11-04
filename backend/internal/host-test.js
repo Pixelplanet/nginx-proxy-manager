@@ -1,7 +1,16 @@
 import _ from "lodash";
 import errs from "../lib/error.js";
-import { buildTestResult, buildTestTargets, mergeTargetResults, WARNING_MESSAGES } from "../lib/host-test.js";
+import {
+	buildAsideWarnings,
+	buildTestResult,
+	buildTestTargets,
+	checkTestTargets,
+	mergeTargetResults,
+	takePendingCertificate,
+	WARNING_MESSAGES,
+} from "../lib/host-test.js";
 import { checkTargets } from "../lib/upstream/check.js";
+import { consumeCheckBudget } from "../lib/upstream/check-budget.js";
 import { isUpstreamCheckEnabled } from "../lib/upstream/config.js";
 import { TooManyRequestsError } from "../lib/upstream/errors.js";
 import { createRateLimiter } from "../lib/upstream/rate-limit.js";
@@ -22,6 +31,7 @@ import internalStream from "./stream.js";
  * POST /api/nginx/(proxy-hosts|redirection-hosts|dead-hosts|streams)/test
  */
 
+// Each test runs nginx -t; the upstream probes of a test are charged to the budget of /upstreams/check
 const testLimiter = createRateLimiter({ limit: 30, windowMs: 60 * 1000 });
 
 const HOST_TYPES = {
@@ -92,12 +102,8 @@ const internalHostTest = {
 			);
 		}
 
-		const warnings = [];
-		if (input.certificate_id === "new") {
-			// Like create/update before the certificate exists: the host is checked without SSL
-			delete input.certificate_id;
-			warnings.push({ code: "certificate_pending", message: WARNING_MESSAGES.certificate_pending });
-		}
+		// certificate_id "new": checked without SSL
+		const warnings = takePendingCertificate(input);
 
 		if (type.hostnameType && Array.isArray(input.domain_names)) {
 			const results = await Promise.all(
@@ -115,9 +121,13 @@ const internalHostTest = {
 		const host = await internalHostTest.buildHost(access, type, hostType, id, input);
 		const targets = buildTestTargets(hostType, host);
 
-		const [dry, results] = await Promise.all([
+		const [dry, checked] = await Promise.all([
 			internalNginx.dryRun(type.model, hostType, host),
-			targets.length ? checkTargets(targets, { enabled: isUpstreamCheckEnabled() }) : Promise.resolve([]),
+			checkTestTargets(targets, {
+				enabled: isUpstreamCheckEnabled(),
+				consume: (units) => consumeCheckBudget(access, units),
+				check: checkTargets,
+			}),
 		]);
 
 		let error = dry.error;
@@ -132,30 +142,23 @@ const internalHostTest = {
 			}
 		}
 
-		for (const other of dry.aside) {
-			const visible = await internalNginx.canSeeHost(access, other.host_type, other.host_id);
-			warnings.push(
-				visible
-					? {
-							code: "other_host_broken",
-							message: `${other.message} Saving would repair or disable it.`,
-							host_type: other.host_type,
-							host_id: other.host_id,
-						}
-					: {
-							code: "other_host_broken",
-							message: WARNING_MESSAGES.other_host_hidden,
-							host_type: null,
-							host_id: null,
-						},
-			);
+		warnings.push(
+			...(await buildAsideWarnings(dry.aside, (other) =>
+				internalNginx.canSeeHost(access, other.host_type, other.host_id),
+			)),
+		);
+		if (checked.rateLimited !== null) {
+			warnings.push({
+				code: "upstreams_rate_limited",
+				message: WARNING_MESSAGES.upstreams_rate_limited(checked.rateLimited),
+			});
 		}
 
 		const result = buildTestResult({
 			meta: dry.meta,
 			error,
 			locations: dry.locations,
-			upstreams: mergeTargetResults(targets, results),
+			upstreams: mergeTargetResults(targets, checked.results),
 			warnings,
 		});
 		debug(
