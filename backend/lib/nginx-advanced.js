@@ -87,7 +87,9 @@ const isConfigFile = (resolved) => {
 	}
 	if (resolved.startsWith(CONF_PREFIX)) {
 		return (
-			resolved.startsWith(`${CONF_PREFIX}conf.d/`) || resolved === `${CONF_PREFIX}conf.d` || CONFIG_SUFFIX.test(resolved)
+			resolved.startsWith(`${CONF_PREFIX}conf.d/`) ||
+			resolved === `${CONF_PREFIX}conf.d` ||
+			CONFIG_SUFFIX.test(resolved)
 		);
 	}
 	return false;
@@ -191,7 +193,9 @@ const isForbiddenLogTarget = (target, directive) => {
 	}
 	// or to a config file below /data/nginx/ or /etc/nginx/
 	return (
-		(resolved.startsWith("/data/nginx/") || resolved.startsWith(CONF_PREFIX) || "/data/nginx/".startsWith(resolved)) &&
+		(resolved.startsWith("/data/nginx/") ||
+			resolved.startsWith(CONF_PREFIX) ||
+			"/data/nginx/".startsWith(resolved)) &&
 		CONFIG_SUFFIX.test(target)
 	);
 };
