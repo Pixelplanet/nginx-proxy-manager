@@ -23,7 +23,10 @@ export function NginxErrorMessage({ message, details }: NginxErrorMessageProps) 
 					<summary>
 						<T id="nginx-error.show-output" />
 					</summary>
-					<pre className="mt-2 mb-0 p-2 small text-wrap text-break" style={{ maxHeight: "12rem" }}>
+					<pre
+						className="mt-2 mb-0 p-2 small text-break"
+						style={{ maxHeight: "12rem", whiteSpace: "pre-wrap" }}
+					>
 						{details.nginxOutput}
 					</pre>
 				</details>
