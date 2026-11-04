@@ -1,6 +1,6 @@
 import type { HostMeta, UpstreamHealthTarget, UpstreamHostHealth } from "src/api/backend";
 import { describe, expect, it } from "vitest";
-import { getHostStatus, isVariableHost, locationHostPart } from "./HostStatus";
+import { getHostStatus, getTestLocationIndex, isVariableHost, locationHostPart } from "./HostStatus";
 
 const target = (t: Partial<UpstreamHealthTarget>): UpstreamHealthTarget => ({
 	locationIndex: null,
@@ -50,6 +50,35 @@ describe("getHostStatus", () => {
 
 	it("is online without problems or failed targets", () => {
 		expect(getHostStatus(true, { nginxOnline: true }, health([target({ ok: true })])).state).toBe("online");
+	});
+});
+
+describe("getTestLocationIndex", () => {
+	const result = {
+		ok: false,
+		nginxOnline: true,
+		nginxErr: null,
+		nginxDetails: null,
+		nginxLocations: [
+			{ index: 0, path: "/a", status: "ok" as const, mode: "static" as const, message: null },
+			{ index: 1, path: "/b", status: "quarantined" as const, mode: null, message: "bad" },
+		],
+		upstreams: [],
+		warnings: [],
+	};
+
+	it("points at the location nginx rejected the host for, else the first quarantined one", () => {
+		expect(getTestLocationIndex(null)).toBeNull();
+		expect(getTestLocationIndex({ ...result, ok: true })).toBeNull();
+		expect(getTestLocationIndex(result)).toBe(1);
+		expect(
+			getTestLocationIndex({
+				...result,
+				nginxOnline: false,
+				nginxDetails: { kind: "nginx_config", scope: "host", locationIndex: 0 },
+			}),
+		).toBe(0);
+		expect(getTestLocationIndex({ ...result, nginxLocations: [] })).toBeNull();
 	});
 });
 
