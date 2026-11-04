@@ -1,0 +1,16 @@
+[
+ {"path":"/a","fp":""},
+ {"path":"/b/","fp":""},
+ {"path":"/c","fp":"/"},
+ {"path":"/d/","fp":"/"},
+ {"path":"/e","fp":"/x"},
+ {"path":"/f/","fp":"/x/"},
+ {"path":"/g/","fp":"/x"},
+ {"path":"/h.v1+(p)","fp":"/y/"},
+ {"path":"= /exact","fp":"/z"},
+ {"path":"^~ /pre/","fp":"/q/"},
+ {"path":"~ ^/re/","fp":""},
+ {"path":"~* \\.php$","fp":""},
+ {"path":"/auth-test/","fp":"/w/","adv":"auth_request /auth;"},
+ {"path":"/rw/","fp":"/k/","adv":"rewrite ^/rw/old(.*)$ /rw/new$1 break;"}
+]
