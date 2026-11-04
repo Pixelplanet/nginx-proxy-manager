@@ -119,8 +119,10 @@ const getDiscovery = (refresh) => {
  * @returns {Promise<{status: object, items: Array}>}
  */
 const getHistory = async (access) => {
-	const load = async (fn) => {
+	const load = async (permission, fn) => {
 		try {
+			// Only asking: a user without the permission is normal here and must not log an error
+			await access.can(permission, undefined, { quiet: true });
 			return { rows: await fn(), denied: false };
 		} catch (err) {
 			if (err instanceof errs.PermissionError) {
@@ -132,8 +134,8 @@ const getHistory = async (access) => {
 
 	try {
 		const [proxyHosts, streams] = await Promise.all([
-			load(() => internalProxyHost.getAll(access)),
-			load(() => internalStream.getAll(access)),
+			load("proxy_hosts:list", () => internalProxyHost.getAll(access)),
+			load("streams:list", () => internalStream.getAll(access)),
 		]);
 		return {
 			status: { status: "ok", message: null },
@@ -219,8 +221,9 @@ const internalUpstream = {
 	getHealth: async (access) => {
 		const visibility = async (permission) => {
 			try {
-				const accessData = await access.can(permission);
-				if (accessData.permission_visibility === "all") {
+				// Polled by every open hosts page: a missing permission is expected, don't log it as an error
+				const accessData = await access.can(permission, undefined, { quiet: true });
+				if (accessData === true || accessData.permission_visibility === "all") {
 					return () => true;
 				}
 				const userId = access.token.getUserId(1);
