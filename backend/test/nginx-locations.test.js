@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
 	bracesBalanced,
+	chooseLocationMode,
 	describeConfigLine,
 	escapeRegex,
 	findDuplicatePath,
+	isVariableHost,
 	MESSAGES,
 	normaliseLocationPath,
 	parseLocationPath,
@@ -59,6 +61,12 @@ describe("parseLocationPath", () => {
 		assert.equal(parseLocationPath("@fallback").isNamed, true);
 	});
 
+	it("unquotes quoted paths", () => {
+		assert.equal(parseLocationPath('"/my path"').unquoted, "/my path");
+		assert.equal(parseLocationPath("^~ '/a b/'").unquoted, "/a b/");
+		assert.equal(parseLocationPath("/plain").unquoted, "/plain");
+	});
+
 	it("normalises whitespace", () => {
 		assert.equal(normaliseLocationPath("  ^~   /x "), "^~ /x");
 		assert.equal(normaliseLocationPath("=/x"), "= /x");
@@ -75,6 +83,18 @@ describe("findDuplicatePath", () => {
 		assert.equal(findDuplicatePath([{ path: "/a" }, { path: "= /a" }]), null);
 		assert.equal(findDuplicatePath([]), null);
 		assert.equal(findDuplicatePath(undefined), null);
+	});
+
+	it("treats a prefix and a ^~ prefix with the same uri as duplicates, like nginx", () => {
+		assert.equal(findDuplicatePath([{ path: "/a" }, { path: "^~ /a" }]), "^~ /a");
+		assert.equal(findDuplicatePath([{ path: "= /x" }, { path: "=/x" }]), "= /x");
+		assert.equal(findDuplicatePath([{ path: '"/my path"' }, { path: '"/my path"' }]), '"/my path"');
+	});
+
+	it("allows duplicate regex and named locations, nginx accepts them", () => {
+		assert.equal(findDuplicatePath([{ path: "~* \\.php$" }, { path: "~* \\.php$" }]), null);
+		assert.equal(findDuplicatePath([{ path: "~ ^/api" }, { path: "~ ^/api" }]), null);
+		assert.equal(findDuplicatePath([{ path: "@fallback" }, { path: "@fallback" }]), null);
 	});
 });
 
@@ -122,9 +142,18 @@ describe("preflightLocation", () => {
 	});
 
 	it("quarantines invalid host names", () => {
-		for (const host of ["a b", "a;b", 'a"b', "a{", "$x"]) {
+		for (const host of ["a b", "a;b", 'a"b', "a{", "$x y", "a$x", "$x;", "$" + "{x}", "#x"]) {
 			assert.equal(preflightLocation(prepareLocation({ ...base, path: "/a", forward_host: host })).status, "quarantined");
 		}
+	});
+
+	it("allows a forward host that is a single nginx variable", () => {
+		for (const host of ["$backend", "$server", "$x_1", "$backend/sub"]) {
+			assert.equal(preflightLocation(prepareLocation({ ...base, path: "/a", forward_host: host })), null, host);
+		}
+		assert.equal(isVariableHost("$backend"), true);
+		assert.equal(isVariableHost("$1x"), false);
+		assert.equal(isVariableHost("app"), false);
 	});
 
 	it("quarantines unbalanced advanced config", () => {
@@ -139,6 +168,26 @@ describe("bracesBalanced", () => {
 		assert.equal(bracesBalanced("}"), false);
 		assert.equal(bracesBalanced("{"), false);
 		assert.equal(bracesBalanced(""), true);
+	});
+
+	it("only starts comments and strings at the start of a token, like nginx", () => {
+		// all of these pass nginx -t
+		for (const text of [
+			"if ($uri = /x/old) { return 301 /#/new; }",
+			"location /x/y { return 301 https://$host/#/y; }",
+			"if ($http_x) { add_header X-A don't; }",
+			"if ($http_x) { add_header X-A it's; add_header X-B \"#\"; }",
+			"set $a $" + "{host}x; if ($a) { return 200; }",
+			"location /a { return 200 'x}'; } # }",
+		]) {
+			assert.equal(bracesBalanced(text), true, text);
+		}
+	});
+
+	it("still finds real brace errors", () => {
+		for (const text of ["if ($x) { return 200; # }", "if ($x) { return 200; ", "return 200; }", "if ($x) { add_header 'a; }"]) {
+			assert.equal(bracesBalanced(text), false, text);
+		}
 	});
 });
 
@@ -155,7 +204,7 @@ describe("renderLocation", () => {
 	it("renders dynamic locations with set, rewrite, proxy_pass and proxy_redirect", async () => {
 		const out = await render({ ...base, path: "/a", forward_path: "/x" }, { mode: "dynamic" });
 		assert.match(out, /set \$npm_loc_0_host "app";/);
-		assert.match(out, /rewrite\s+\^\\\/a\(\.\*\)\$ \/x\$1 break;/);
+		assert.match(out, /rewrite\s+"\(\?s\)\^\\\/a\(\.\*\)\$" \/x\$1 break;/);
 		assert.match(out, /proxy_pass\s+http:\/\/\$npm_loc_0_host:8080;/);
 		assert.match(out, /proxy_redirect\s+http:\/\/app:8080\/x \/a;/);
 		// set must come before the advanced config
@@ -171,7 +220,7 @@ describe("renderLocation", () => {
 
 	it("uses the uri without modifier", async () => {
 		const out = await render({ ...base, path: "^~ /pre/", forward_path: "/q/" }, { mode: "dynamic" });
-		assert.match(out, /rewrite\s+\^\\\/pre\\\/\(\.\*\)\$ \/q\/\$1 break;/);
+		assert.match(out, /rewrite\s+"\(\?s\)\^\\\/pre\\\/\(\.\*\)\$" \/q\/\$1 break;/);
 		assert.match(out, /proxy_redirect\s+http:\/\/app:8080\/q\/ \/pre\/;/);
 	});
 
@@ -212,7 +261,7 @@ describe("renderLocation", () => {
 			assert.doesNotMatch(out, /\$server/);
 			const nested = out.slice(out.indexOf("location ~*"));
 			assert.match(nested, /proxy_cache public-cache;/);
-			assert.match(nested, /rewrite \^\\\/a\(\.\*\)\$ \/x\$1 break;/);
+			assert.match(nested, /rewrite "\(\?s\)\^\\\/a\(\.\*\)\$" \/x\$1 break;/);
 			assert.match(nested, /proxy_redirect http:\/\/app:8080\/x \/a;/);
 			if (mode === "dynamic") {
 				assert.match(nested, /set \$npm_loc_0_host "app";/);
@@ -221,6 +270,24 @@ describe("renderLocation", () => {
 				assert.match(nested, /proxy_pass http:\/\/app:8080;/);
 			}
 		}
+	});
+
+	it("quotes the rewrite of a quoted path, so it stays one argument", async () => {
+		const out = await render({ ...base, path: '"/my path"', forward_path: "/fp" }, { mode: "dynamic" });
+		assert.match(out, /location "\/my path" \{/);
+		assert.match(out, /rewrite\s+"\(\?s\)\^\\\/my path\(\.\*\)\$" \/fp\$1 break;/);
+		assert.match(out, /proxy_redirect\s+http:\/\/app:8080\/fp "\/my path";/);
+	});
+
+	it("renders a variable forward host literally, as it always was", async () => {
+		const loc = { ...base, path: "/x", forward_host: "$backend", forward_path: "/fp", advanced_config: "set $backend app;" };
+		const mode = chooseLocationMode(prepareLocation(loc), { mode: "dynamic", status: "unresolved" });
+		assert.deepEqual(mode, { mode: "static", status: "ok" });
+		const out = await render(loc, mode, { caching_enabled: true });
+		assert.match(out, /proxy_pass\s+http:\/\/\$backend:8080\/fp;/);
+		assert.doesNotMatch(out, /rewrite|npm_loc_0_host|proxy_redirect/);
+		// a nested location would not run the parent's `set $backend`
+		assert.doesNotMatch(out, /location ~\*/);
 	});
 
 	it("does not nest the asset cache in exact or named locations", async () => {
@@ -302,5 +369,32 @@ describe("publicLocationState", () => {
 			message: null,
 		});
 		assert.equal(publicLocationState({ index: 0, path: "/", status: "unresolved", mode: "dynamic" }).mode, "dynamic");
+	});
+});
+
+describe("chooseLocationMode", () => {
+	const loc = (extra) => prepareLocation({ ...base, path: "/u/", forward_path: "/x/", ...extra });
+	const dynamicOk = { mode: "dynamic", status: "ok" };
+
+	it("keeps the resolver's decision normally", () => {
+		assert.deepEqual(chooseLocationMode(loc({}), dynamicOk), dynamicOk);
+		assert.deepEqual(chooseLocationMode(loc({}), { mode: "static", status: "ok" }), { mode: "static", status: "ok" });
+	});
+
+	it("stays static when the advanced config reads $uri, which the dynamic rewrite changes", () => {
+		for (const adv of ["proxy_set_header X-Seen-Uri $uri;", "add_header X $document_uri;", "try_files $" + "{uri} =404;"]) {
+			assert.deepEqual(chooseLocationMode(loc({ advanced_config: adv }), dynamicOk), { mode: "static", status: "ok" }, adv);
+		}
+		// $uri_x is another variable, no forward path means no rewrite
+		assert.deepEqual(chooseLocationMode(loc({ advanced_config: "add_header X $uri_x;" }), dynamicOk), dynamicOk);
+		assert.deepEqual(
+			chooseLocationMode(loc({ forward_path: "", advanced_config: "add_header X $uri;" }), dynamicOk),
+			dynamicOk,
+		);
+	});
+
+	it("stays dynamic when the host does not resolve, a literal unknown host fails nginx -t", () => {
+		const unresolved = { mode: "dynamic", status: "unresolved" };
+		assert.deepEqual(chooseLocationMode(loc({ advanced_config: "add_header X $uri;" }), unresolved), unresolved);
 	});
 });
