@@ -127,6 +127,50 @@ describe("dns discovery", () => {
 		assert.ok(Date.now() - started < 1000);
 	});
 
+	it("cuts slow probes off at the deadline", async () => {
+		// every lookup hangs far longer than the deadline
+		const hanging = {
+			reverse: () => new Promise((resolve) => setTimeout(() => resolve(["x.net"]), 3000).unref()),
+			resolve4: () => new Promise((resolve) => setTimeout(() => resolve([]), 3000).unref()),
+		};
+		const started = Date.now();
+		const result = await discoverDns({
+			nameservers: ["127.0.0.11"],
+			interfaces,
+			gateways: [],
+			resolver: hanging,
+			limits: { deadlineMs: 150 },
+		});
+		assert.equal(result.truncated, true);
+		assert.ok(Date.now() - started < 600, `took ${Date.now() - started}ms`);
+	});
+
+	it("applies the address cap across all subnets", async () => {
+		const twoSubnets = {
+			eth0: [{ address: "172.24.0.4", family: "IPv4", internal: false, cidr: "172.24.0.4/16" }],
+			eth1: [{ address: "172.25.0.4", family: "IPv4", internal: false, cidr: "172.25.0.4/16" }],
+		};
+		const queried = [];
+		const busy = {
+			// every address answers as "in use" so neither sweep stops on misses
+			reverse: async (ip) => {
+				queried.push(ip);
+				return [];
+			},
+			resolve4: async () => [],
+		};
+		const result = await discoverDns({
+			nameservers: ["127.0.0.11"],
+			interfaces: twoSubnets,
+			gateways: [],
+			resolver: busy,
+			limits: { maxAddresses: 50 },
+		});
+		assert.equal(result.scanned, 50);
+		assert.equal(queried.length, 50);
+		assert.equal(result.truncated, true);
+	});
+
 	it("lists only external IPv4 interfaces", () => {
 		assert.deepEqual(ownIpv4Subnets(interfaces), [{ cidr: "172.24.0.4/16", address: "172.24.0.4", iface: "eth0" }]);
 	});

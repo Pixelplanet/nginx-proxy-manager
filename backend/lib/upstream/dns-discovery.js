@@ -9,6 +9,7 @@ import {
 	parseProcNetRouteGateways,
 	parsePtrName,
 	readResolvConfNameservers,
+	withTimeout,
 } from "./util.js";
 
 /**
@@ -72,14 +73,16 @@ const ownIpv4Subnets = (interfaces) => {
  * @param   {number}   ctx.deadline   epoch ms
  * @param   {object}   ctx.limits
  * @param   {Map}      ctx.found      host -> item (shared across subnets)
+ * @param   {object}   [ctx.budget]   {scanned} shared across subnets so maxAddresses is global
  * @returns {Promise<{scanned: number, truncated: boolean}>}
  */
-const sweepRange = async ({ resolver, range, skip, deadline, limits, found }) => {
+const sweepRange = async ({ resolver, range, skip, deadline, limits, found, budget = { scanned: 0 } }) => {
 	let consecutiveMisses = 0;
 	let scanned = 0;
 	let next = range.first;
+	let late = false;
 
-	const probe = async (ip) => {
+	const lookup = async (ip) => {
 		let names;
 		try {
 			names = await resolver.reverse(ip);
@@ -92,6 +95,9 @@ const sweepRange = async ({ resolver, range, skip, deadline, limits, found }) =>
 		}
 		for (const name of names) {
 			for (const candidate of parsePtrName(name)) {
+				if (Date.now() >= deadline) {
+					return { hit: true };
+				}
 				try {
 					const forward = await resolver.resolve4(candidate.host);
 					if (Array.isArray(forward) && forward.includes(ip)) {
@@ -105,8 +111,15 @@ const sweepRange = async ({ resolver, range, skip, deadline, limits, found }) =>
 		return { hit: true };
 	};
 
+	// Every probe is cut off at the global deadline, so a slow batch can't overrun it
+	const probe = (ip) =>
+		withTimeout(lookup(ip), Math.max(0, deadline - Date.now()), () => {
+			late = true;
+			return { hit: false };
+		});
+
 	while (next <= range.last) {
-		if (Date.now() >= deadline || scanned >= limits.maxAddresses) {
+		if (Date.now() >= deadline || budget.scanned >= limits.maxAddresses) {
 			return { scanned, truncated: true };
 		}
 
@@ -114,7 +127,7 @@ const sweepRange = async ({ resolver, range, skip, deadline, limits, found }) =>
 		while (
 			batch.length < limits.concurrency &&
 			next <= range.last &&
-			scanned + batch.length < limits.maxAddresses
+			budget.scanned + batch.length < limits.maxAddresses
 		) {
 			const ip = intToIpv4(next);
 			next++;
@@ -126,6 +139,7 @@ const sweepRange = async ({ resolver, range, skip, deadline, limits, found }) =>
 			continue;
 		}
 		scanned += batch.length;
+		budget.scanned += batch.length;
 
 		const results = await Promise.all(batch.map(probe));
 		results.forEach((result) => {
@@ -139,6 +153,9 @@ const sweepRange = async ({ resolver, range, skip, deadline, limits, found }) =>
 			}
 		});
 
+		if (late) {
+			return { scanned, truncated: true };
+		}
 		if (consecutiveMisses >= limits.maxConsecutiveMisses) {
 			return { scanned, truncated: false };
 		}
@@ -188,7 +205,7 @@ const discoverDns = async (opts = {}) => {
 
 	const deadline = Date.now() + limits.deadlineMs;
 	const found = new Map();
-	let scanned = 0;
+	const budget = { scanned: 0 };
 	let truncated = false;
 	const seenRanges = new Set();
 
@@ -199,10 +216,9 @@ const discoverDns = async (opts = {}) => {
 				continue;
 			}
 			seenRanges.add(range.network);
-			const result = await sweepRange({ resolver, range, skip, deadline, limits, found });
-			scanned += result.scanned;
+			const result = await sweepRange({ resolver, range, skip, deadline, limits, found, budget });
 			truncated = truncated || result.truncated;
-			if (Date.now() >= deadline) {
+			if (Date.now() >= deadline || budget.scanned >= limits.maxAddresses) {
 				truncated = true;
 				break;
 			}
@@ -228,7 +244,7 @@ const discoverDns = async (opts = {}) => {
 			used_by: 0,
 		}));
 
-	return { items, scanned, truncated };
+	return { items, scanned: budget.scanned, truncated };
 };
 
 export { DnsDiscoveryUnavailable, discoverDns, ownIpv4Subnets, sweepRange };
