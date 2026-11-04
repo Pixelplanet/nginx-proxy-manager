@@ -97,7 +97,9 @@ describe("validateLocations", () => {
 			"app/a\tb",
 			"$backend/a;b",
 		]) {
-			expect(validateLocations([loc({ forwardHost })])[0]?.forwardHost).toMatch(/invalid characters in forward path/i);
+			expect(validateLocations([loc({ forwardHost })])[0]?.forwardHost).toMatch(
+				/invalid characters in forward path/i,
+			);
 		}
 		// nginx variables in the path are fine
 		for (const forwardHost of ["app/$uri", "$backend/api/$arg_x", "app/a-b_c.d/~e"]) {
