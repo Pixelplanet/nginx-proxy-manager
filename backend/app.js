@@ -71,6 +71,10 @@ app.use((err, req, res, _) => {
 		payload.error.message_i18n = err.message_i18n;
 	}
 
+	if (err.public && err.details && typeof err.details === "object") {
+		payload.error.details = err.details;
+	}
+
 	if (isDebugMode() || (req.baseUrl + req.path).includes("nginx/certificates")) {
 		payload.debug = {
 			stack: typeof err.stack !== "undefined" && err.stack ? err.stack.split("\n") : null,
