@@ -143,7 +143,7 @@ describe('Regenerate all host configs', () => {
 		// Two requests at once, straight to the API: one runs, the other one gets a 409
 		const curl = `curl --noproxy '*' -s -o /dev/null -w '%{http_code}\\n' -X POST -H 'Authorization: Bearer ${token}' -H 'Content-Type: application/json' -d '{}' http://fullstack:81/api/nginx/regenerate`;
 		cy.task('exec', {
-			command: `(${curl} > /tmp/regen-a.txt &) ; sleep 0.1 ; ${curl} > /tmp/regen-b.txt ; while [ ! -s /tmp/regen-a.txt ]; do sleep 0.2; done ; cat /tmp/regen-a.txt /tmp/regen-b.txt ; rm -f /tmp/regen-a.txt /tmp/regen-b.txt`,
+			command: `${curl} > /tmp/regen-a.txt & ${curl} > /tmp/regen-b.txt & wait ; cat /tmp/regen-a.txt /tmp/regen-b.txt ; rm -f /tmp/regen-a.txt /tmp/regen-b.txt`,
 			timeout: 120000,
 		}).then((result) => {
 			const codes = result.stdout.trim().split('\n').sort();
