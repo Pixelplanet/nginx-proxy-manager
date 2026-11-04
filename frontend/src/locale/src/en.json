@@ -431,11 +431,41 @@
 	"error.required": {
 		"defaultMessage": "This is required"
 	},
+	"error.unknown": {
+		"defaultMessage": "Unknown error"
+	},
 	"expires.on": {
 		"defaultMessage": "Expires: {date}"
 	},
 	"footer.github-fork": {
 		"defaultMessage": "Fork me on Github"
+	},
+	"host-status.checked-at": {
+		"defaultMessage": "Last configured {date}"
+	},
+	"host-status.config-error": {
+		"defaultMessage": "Nginx could not load this host's configuration, so it is offline."
+	},
+	"host-status.details": {
+		"defaultMessage": "Show status details"
+	},
+	"host-status.disabled": {
+		"defaultMessage": "Disabled"
+	},
+	"host-status.error": {
+		"defaultMessage": "Error"
+	},
+	"host-status.main-target": {
+		"defaultMessage": "Main destination"
+	},
+	"host-status.unreachable": {
+		"defaultMessage": "{where}: {target} is not reachable"
+	},
+	"host-status.view-error-log": {
+		"defaultMessage": "View error log"
+	},
+	"host-status.warning": {
+		"defaultMessage": "Warning"
 	},
 	"host.flags.block-exploits": {
 		"defaultMessage": "Block Common Exploits"
@@ -476,11 +506,59 @@
 	"loading": {
 		"defaultMessage": "Loading…"
 	},
+	"location-status.disabled": {
+		"defaultMessage": "Disabled"
+	},
+	"location-status.ok": {
+		"defaultMessage": "Active"
+	},
+	"location-status.quarantined": {
+		"defaultMessage": "Not active"
+	},
+	"location-status.quarantined.default": {
+		"defaultMessage": "Nginx rejected this location, so it was disabled. The rest of the host keeps working."
+	},
+	"location-status.unresolved": {
+		"defaultMessage": "Unresolved"
+	},
+	"location-status.unresolved.default": {
+		"defaultMessage": "The forward host can't be resolved right now. Requests to this location fail until it can."
+	},
+	"location.advanced": {
+		"defaultMessage": "Advanced"
+	},
 	"location.advanced-config": {
 		"defaultMessage": "Has custom Nginx configuration"
 	},
+	"location.error.duplicate-path": {
+		"defaultMessage": "Another location already uses {path}"
+	},
+	"location.error.has-errors": {
+		"defaultMessage": "This location has errors"
+	},
+	"location.error.host-invalid": {
+		"defaultMessage": "The host contains characters that are not allowed"
+	},
+	"location.error.host-whitespace": {
+		"defaultMessage": "The host must not contain spaces"
+	},
+	"location.errors-summary": {
+		"defaultMessage": "Some custom locations have errors"
+	},
 	"location.filter": {
 		"defaultMessage": "Filter by path or destination"
+	},
+	"location.path-label": {
+		"defaultMessage": "Location"
+	},
+	"location.toggle-enabled": {
+		"defaultMessage": "Enable or disable this location"
+	},
+	"locations.count": {
+		"defaultMessage": "+{count, plural, one {# location} other {# locations}}"
+	},
+	"locations.problems": {
+		"defaultMessage": "{count, plural, one {# problem} other {# problems}}"
 	},
 	"login.2fa-code": {
 		"defaultMessage": "Verification Code"
@@ -550,6 +628,9 @@
 	},
 	"nginx-config.placeholder": {
 		"defaultMessage": "# Enter your custom Nginx configuration here at your own risk!"
+	},
+	"nginx-error.show-output": {
+		"defaultMessage": "Show nginx output"
 	},
 	"no-permission-error": {
 		"defaultMessage": "You do not have access to view this."
@@ -716,6 +797,18 @@
 	"save": {
 		"defaultMessage": "Save"
 	},
+	"save-warning.offline": {
+		"defaultMessage": "Saved, but nginx could not load this host, so it is offline:"
+	},
+	"save-warning.quarantined": {
+		"defaultMessage": "{count, plural, one {# custom location was disabled because nginx rejected it.} other {# custom locations were disabled because nginx rejected them.}}"
+	},
+	"save-warning.title": {
+		"defaultMessage": "Saved with warnings"
+	},
+	"save-warning.unresolved": {
+		"defaultMessage": "{count, plural, one {# custom location points to a host that can't be resolved right now.} other {# custom locations point to hosts that can't be resolved right now.}}"
+	},
 	"setting": {
 		"defaultMessage": "Setting"
 	},
@@ -787,6 +880,72 @@
 	},
 	"update-available": {
 		"defaultMessage": "Update Available: {latestVersion}"
+	},
+	"upstream.check.checking": {
+		"defaultMessage": "Checking…"
+	},
+	"upstream.check.disabled": {
+		"defaultMessage": "Check disabled"
+	},
+	"upstream.check.dns_not_found": {
+		"defaultMessage": "Host not found"
+	},
+	"upstream.check.dns_timeout": {
+		"defaultMessage": "DNS lookup timed out"
+	},
+	"upstream.check.invalid_host": {
+		"defaultMessage": "Invalid host name"
+	},
+	"upstream.check.ok": {
+		"defaultMessage": "Reachable"
+	},
+	"upstream.check.ok-ms": {
+		"defaultMessage": "Reachable ({ms} ms)"
+	},
+	"upstream.check.resolver_mismatch": {
+		"defaultMessage": "Resolves only via /etc/hosts or search domains"
+	},
+	"upstream.check.tcp_refused": {
+		"defaultMessage": "Connection refused"
+	},
+	"upstream.check.tcp_timeout": {
+		"defaultMessage": "Connection timed out"
+	},
+	"upstream.check.tcp_unreachable": {
+		"defaultMessage": "Host unreachable"
+	},
+	"upstream.docker-disabled": {
+		"defaultMessage": "Enable Docker discovery: set NPM_DOCKER_DISCOVERY=true and give NPM access to the Docker API (see the documentation)."
+	},
+	"upstream.free-text": {
+		"defaultMessage": "You can also type any host name or IP address."
+	},
+	"upstream.group.dns": {
+		"defaultMessage": "Discovered on network"
+	},
+	"upstream.group.docker": {
+		"defaultMessage": "Docker containers"
+	},
+	"upstream.group.history": {
+		"defaultMessage": "Used before"
+	},
+	"upstream.loading": {
+		"defaultMessage": "Looking for upstreams…"
+	},
+	"upstream.no-options": {
+		"defaultMessage": "No suggestions, type a host name or IP address"
+	},
+	"upstream.ports": {
+		"defaultMessage": "Ports: {ports}"
+	},
+	"upstream.refresh": {
+		"defaultMessage": "Refresh suggestions"
+	},
+	"upstream.use-value": {
+		"defaultMessage": "Use \"{value}\""
+	},
+	"upstream.used-by": {
+		"defaultMessage": "used by {count, plural, one {# host} other {# hosts}}"
 	},
 	"user": {
 		"defaultMessage": "User"
