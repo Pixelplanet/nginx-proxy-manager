@@ -21,15 +21,14 @@ const modals = vi.hoisted(() => ({
 }));
 vi.mock("src/modals", () => modals);
 
-const renderPage = () => {
-	const queryClient = new QueryClient();
+const renderPage = (queryClient = new QueryClient()) => {
 	const invalidate = vi.spyOn(queryClient, "invalidateQueries");
 	const utils = render(
 		<QueryClientProvider client={queryClient}>
 			<NginxConfig />
 		</QueryClientProvider>,
 	);
-	return { ...utils, invalidate };
+	return { ...utils, invalidate, queryClient };
 };
 
 const confirm = async () => {
@@ -117,5 +116,40 @@ describe("Settings: Nginx configuration", () => {
 		await confirm();
 		expect(await screen.findByText(/being regenerated already/)).toBeInTheDocument();
 		expect(screen.queryByTestId("regenerate-result")).toBeNull();
+	});
+
+	it("keeps a running regeneration and its result when the section is left and opened again", async () => {
+		let resolve: (value: unknown) => void = () => {};
+		api.regenerateNginxConfigs.mockReturnValue(new Promise((r) => (resolve = r)));
+		const { unmount, queryClient } = renderPage();
+		await confirm();
+		expect(await screen.findByTestId("regenerate-running")).toBeInTheDocument();
+
+		// eg. Settings > Default Site, the section unmounts
+		unmount();
+		renderPage(queryClient);
+		expect(await screen.findByTestId("regenerate-running")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: /Regenerate all host configs/ })).toBeDisabled();
+
+		await act(async () => {
+			resolve({ checked: 1, regenerated: 1, offline: [], failed: [], warnings: [], durationMs: 100 });
+		});
+		expect(await screen.findByTestId("regenerate-result")).toHaveTextContent("Checked 1 host");
+		expect(screen.getByRole("button", { name: /Regenerate all host configs/ })).toBeEnabled();
+		expect(api.regenerateNginxConfigs).toHaveBeenCalledTimes(1);
+
+		// and the finished result is still there after another switch
+		cleanup();
+		renderPage(queryClient);
+		expect(await screen.findByTestId("regenerate-result")).toHaveTextContent("Checked 1 host");
+	});
+
+	it("dismisses the error of the last run", async () => {
+		api.regenerateNginxConfigs.mockRejectedValue(new Error("nginx is broken"));
+		renderPage();
+		await confirm();
+		expect(await screen.findByText("nginx is broken")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: /close/i }));
+		await waitFor(() => expect(screen.queryByText("nginx is broken")).toBeNull());
 	});
 });

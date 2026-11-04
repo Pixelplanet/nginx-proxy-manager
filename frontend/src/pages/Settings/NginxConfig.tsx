@@ -1,5 +1,5 @@
 import { IconAlertTriangle, IconCircleCheck, IconRefresh } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { type MutationState, useMutation, useMutationState, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Alert } from "react-bootstrap";
 import Modal from "react-bootstrap/Modal";
@@ -28,6 +28,10 @@ const INVALIDATIONS = [
 	"upstream-health",
 	"audit-logs",
 ];
+
+// The run lives in the mutation cache, not in this component: leaving the section (or the page) while it runs
+// keeps its progress and result, they show again when the section is opened again
+const MUTATION_KEY = ["regenerate-nginx-configs"];
 
 const HOST_TYPE_LABELS: Record<NginxHostType, string> = {
 	proxy_host: "proxy-host",
@@ -138,26 +142,32 @@ function RegenerateResult({ result }: { result: NginxRegenerateResult }) {
 export default function NginxConfig() {
 	const queryClient = useQueryClient();
 	const [confirming, setConfirming] = useState(false);
-	const [running, setRunning] = useState(false);
-	const [result, setResult] = useState<NginxRegenerateResult | null>(null);
-	const [error, setError] = useState<string | null>(null);
+	// submittedAt of the run whose error was dismissed
+	const [dismissed, setDismissed] = useState<number | null>(null);
 
-	const onRegenerate = async () => {
-		if (running) return;
-		setConfirming(false);
-		setRunning(true);
-		setError(null);
-		setResult(null);
-		try {
-			setResult(await regenerateNginxConfigs());
-		} catch (err) {
-			setError(formatApiError(err));
-		} finally {
-			setRunning(false);
+	const mutation = useMutation({
+		mutationKey: MUTATION_KEY,
+		mutationFn: () => regenerateNginxConfigs(),
+		// Mutation level callback: runs even when this section was left meanwhile
+		onSettled: () => {
 			for (const key of INVALIDATIONS) {
 				queryClient.invalidateQueries({ queryKey: [key] });
 			}
-		}
+		},
+	});
+	const runs = useMutationState<MutationState<NginxRegenerateResult, unknown>>({
+		filters: { mutationKey: MUTATION_KEY },
+		select: (m) => m.state as MutationState<NginxRegenerateResult, unknown>,
+	});
+	const latest = runs.length ? runs[runs.length - 1] : null;
+	const running = latest?.status === "pending";
+	const result = latest?.status === "success" ? (latest.data ?? null) : null;
+	const error = latest?.status === "error" && latest.submittedAt !== dismissed ? formatApiError(latest.error) : null;
+
+	const onRegenerate = () => {
+		setConfirming(false);
+		if (running) return;
+		mutation.mutate();
 	};
 
 	return (
@@ -184,7 +194,12 @@ export default function NginxConfig() {
 				</div>
 			) : null}
 			{error ? (
-				<Alert variant="danger" className="mt-4 mb-0" onClose={() => setError(null)} dismissible>
+				<Alert
+					variant="danger"
+					className="mt-4 mb-0"
+					onClose={() => setDismissed(latest?.submittedAt ?? null)}
+					dismissible
+				>
 					{error}
 				</Alert>
 			) : null}
