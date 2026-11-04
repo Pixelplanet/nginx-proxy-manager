@@ -1382,6 +1382,9 @@ const internalNginx = {
 			const attempt = opts.attempt || 0;
 			const summary = { checked: 0, regenerated: 0, offline: 0, failed: 0, retry: {} };
 			const modeResolver = createModeResolver();
+			if (!opts.only) {
+				internalNginx.restoreStaleAside();
+			}
 
 			for (const [hostType, model] of Object.entries(HOST_MODELS)) {
 				const only = opts.only ? opts.only[hostType] : null;
@@ -1469,6 +1472,42 @@ const internalNginx = {
 			logger.error(`Startup reconcile failed: ${err.message}`);
 			return null;
 		}),
+
+	/**
+	 * testAside() moves config files to `<file>.npm-aside` for a moment. A backend killed right then leaves
+	 * them there: put them back, or delete them when the config was written again since. Only call this
+	 * while holding the lock.
+	 *
+	 * @returns {Number} how many files were handled
+	 */
+	restoreStaleAside: () => {
+		let handled = 0;
+		for (const hostType of [...Object.keys(HOST_MODELS), "default_host"]) {
+			const dir = `/data/nginx/${hostType}`;
+			let files = [];
+			try {
+				files = fs.readdirSync(dir).filter((f) => f.endsWith(".conf.npm-aside"));
+			} catch {
+				continue;
+			}
+			for (const file of files) {
+				const aside = `${dir}/${file}`;
+				const conf = aside.slice(0, -".npm-aside".length);
+				try {
+					if (fs.existsSync(conf)) {
+						fs.rmSync(aside, { force: true });
+					} else {
+						fs.renameSync(aside, conf);
+						logger.warn(`Restored ${conf} from an interrupted config test`);
+					}
+					handled++;
+				} catch (err) {
+					logger.error(`Could not restore ${conf} from ${aside}: ${err.message}`);
+				}
+			}
+		}
+		return handled;
+	},
 
 	/**
 	 * @returns {boolean}
