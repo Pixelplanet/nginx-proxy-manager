@@ -1,4 +1,5 @@
-import { buildHistoryCandidates, mergeCandidates } from "../lib/upstream/candidates.js";
+import errs from "../lib/error.js";
+import { buildHistoryCandidates, markExistingHosts, mergeCandidates } from "../lib/upstream/candidates.js";
 import { checkTarget, checkTargets } from "../lib/upstream/check.js";
 import {
 	getDockerHost,
@@ -12,7 +13,6 @@ import { describeDockerError, discoverDocker } from "../lib/upstream/docker.js";
 import { TooManyRequestsError } from "../lib/upstream/errors.js";
 import { HealthMonitor } from "../lib/upstream/health.js";
 import { createRateLimiter } from "../lib/upstream/rate-limit.js";
-import errs from "../lib/error.js";
 import { debug, global as logger } from "../logger.js";
 import proxyHostModel from "../models/proxy_host.js";
 import streamModel from "../models/stream.js";
@@ -116,7 +116,7 @@ const getDiscovery = (refresh) => {
  * Forward hosts this user has already used. Visibility rules of the list endpoints apply.
  *
  * @param   {Access} access
- * @returns {Promise<{status: object, items: Array}>}
+ * @returns {Promise<{status: object, items: Array, proxyHosts: Array}>}
  */
 const getHistory = async (access) => {
 	const load = async (permission, fn) => {
@@ -140,10 +140,15 @@ const getHistory = async (access) => {
 		return {
 			status: { status: "ok", message: null },
 			items: buildHistoryCandidates({ proxyHosts: proxyHosts.rows, streams: streams.rows }),
+			proxyHosts: proxyHosts.rows,
 		};
 	} catch (err) {
 		debug(logger, `Upstream history failed: ${err.message}`);
-		return { status: { status: "unavailable", message: "Could not read existing hosts." }, items: [] };
+		return {
+			status: { status: "unavailable", message: "Could not read existing hosts." },
+			items: [],
+			proxyHosts: [],
+		};
 	}
 };
 
@@ -175,7 +180,8 @@ const internalUpstream = {
 		const [discovery, history] = await Promise.all([getDiscovery(refresh), getHistory(access)]);
 		return {
 			providers: { ...discovery.providers, history: history.status },
-			items: mergeCandidates([discovery.items, history.items]),
+			// Label suggestions point at an existing host already using one of their domains
+			items: markExistingHosts(mergeCandidates([discovery.items, history.items]), history.proxyHosts),
 			generated_at: new Date().toISOString(),
 		};
 	},

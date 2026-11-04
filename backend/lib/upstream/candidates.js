@@ -83,8 +83,8 @@ const buildHistoryCandidates = ({ proxyHosts = [], streams = [] } = {}) => {
 
 /**
  * Merges candidates from all providers and dedupes them by host (case-insensitive).
- * Priority docker > dns > history: the best source wins for label/source/network/state/ip, ports are
- * unioned, hints fall back to lower-priority sources, used_by is kept from history.
+ * Priority docker > dns > history: the best source wins for label/source/network/state/ip/suggestion, ports
+ * are unioned, hints fall back to lower-priority sources, used_by is kept from history.
  *
  * @param   {Array<Array<object>>} lists
  * @param   {number} [max]
@@ -112,6 +112,7 @@ const mergeCandidates = (lists, max = MAX_ITEMS) => {
 				state: item.state ?? null,
 				ip: item.ip ?? null,
 				used_by: item.used_by || 0,
+				...(item.suggestion ? { suggestion: item.suggestion } : {}),
 			});
 			continue;
 		}
@@ -122,6 +123,9 @@ const mergeCandidates = (lists, max = MAX_ITEMS) => {
 		existing.state = existing.state ?? item.state ?? null;
 		existing.ip = existing.ip ?? item.ip ?? null;
 		existing.used_by = Math.max(existing.used_by, item.used_by || 0);
+		if (!existing.suggestion && item.suggestion) {
+			existing.suggestion = item.suggestion;
+		}
 	}
 
 	const items = [...merged.values()];
@@ -138,4 +142,38 @@ const mergeCandidates = (lists, max = MAX_ITEMS) => {
 	return items.slice(0, max);
 };
 
-export { buildHistoryCandidates, MAX_ITEMS, mergeCandidates };
+/**
+ * Returns copies of the items whose label suggestion points at a proxy host that already serves one of
+ * its domains (`existing_host_id`). The input items (shared by the discovery cache) are not changed.
+ *
+ * @param   {Array<object>} items
+ * @param   {Array<object>} proxyHosts  non-deleted proxy_host rows the user can see (id, domain_names)
+ * @returns {Array<object>}
+ */
+const markExistingHosts = (items, proxyHosts = []) => {
+	const byDomain = new Map();
+	for (const row of proxyHosts || []) {
+		for (const domain of Array.isArray(row?.domain_names) ? row.domain_names : []) {
+			const key = `${domain ?? ""}`.trim().toLowerCase();
+			if (key && !byDomain.has(key)) {
+				byDomain.set(key, row.id);
+			}
+		}
+	}
+	return items.map((item) => {
+		if (!item.suggestion) {
+			return item;
+		}
+		const match = (item.suggestion.domain_names || []).find((d) => byDomain.has(d.toLowerCase()));
+		return {
+			...item,
+			suggestion: {
+				...item.suggestion,
+				domain_names: [...(item.suggestion.domain_names || [])],
+				existing_host_id: match ? byDomain.get(match.toLowerCase()) : null,
+			},
+		};
+	});
+};
+
+export { buildHistoryCandidates, MAX_ITEMS, markExistingHosts, mergeCandidates };

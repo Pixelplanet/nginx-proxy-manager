@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildHistoryCandidates, mergeCandidates } from "../lib/upstream/candidates.js";
+import { buildHistoryCandidates, markExistingHosts, mergeCandidates } from "../lib/upstream/candidates.js";
 
 const item = (host, source, extra = {}) => ({
 	host,
@@ -101,5 +101,51 @@ describe("candidates: merge and dedupe", () => {
 
 	it("ignores junk", () => {
 		assert.deepEqual(mergeCandidates([[null, { host: "" }, { source: "dns" }]]), []);
+	});
+});
+
+describe("candidates: label suggestions", () => {
+	const suggestion = (domains) => ({
+		domain_names: domains,
+		forward_scheme: "http",
+		forward_host: "blog",
+		forward_port: 2368,
+		allow_websocket_upgrade: false,
+		block_exploits: false,
+		caching_enabled: false,
+		http2_support: false,
+		existing_host_id: null,
+	});
+
+	it("keeps the docker suggestion when merging", () => {
+		const s = suggestion(["blog.example.com"]);
+		const merged = mergeCandidates([
+			[item("blog", "history", { used_by: 1 }), item("blog", "docker", { suggestion: s })],
+		]);
+		assert.equal(merged.length, 1);
+		assert.deepEqual(merged[0].suggestion, s);
+		assert.equal(merged[0].used_by, 1);
+		const plain = mergeCandidates([[item("db", "dns")]]);
+		assert.equal("suggestion" in plain[0], false);
+	});
+
+	it("marks suggestions whose domain is already served, without changing the input", () => {
+		const s = suggestion(["www.blog.example.com", "blog.example.com"]);
+		const items = [
+			item("blog", "docker", { suggestion: s }),
+			item("other", "docker", { suggestion: suggestion([]) }),
+		];
+		const out = markExistingHosts(items, [
+			{ id: 4, domain_names: ["shop.example.com"] },
+			{ id: 9, domain_names: ["Blog.Example.com"] },
+			{ id: 10, domain_names: null },
+		]);
+		assert.equal(out[0].suggestion.existing_host_id, 9);
+		assert.equal(out[1].suggestion.existing_host_id, null);
+		// the discovery cache is shared between users
+		assert.equal(s.existing_host_id, null);
+		assert.notEqual(out[0].suggestion, s);
+		assert.deepEqual(markExistingHosts([item("x", "dns")], []), [item("x", "dns")]);
+		assert.equal(markExistingHosts(items, undefined)[0].suggestion.existing_host_id, null);
 	});
 });
