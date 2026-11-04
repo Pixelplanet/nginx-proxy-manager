@@ -136,11 +136,34 @@ the same `listen ... default_server` as another host, which nginx reports at the
 of another host's file): the save fails with scope `host` and the other host is not touched. Only a host whose file
 fails on its own is repaired or taken out:
 
-- a proxy host is regenerated from the database first, which fixes files written by older versions
-- if that doesn't help, its file is moved to `<id>.conf.err` (which nginx ignores) and the host is shown as offline,
-  with `nginx_err` starting with `Disabled automatically:`
+- an enabled host is regenerated from the database first (without a reload, with its own custom locations
+  quarantined if needed). That fixes files written by older versions and files that were changed behind NPM's back.
+- only if the regenerated config still fails at host level (or the host is disabled), its file is moved to
+  `<id>.conf.err` (which nginx ignores) and the host is shown as offline, with `nginx_err` starting with
+  `Disabled automatically:`
+
+Some errors don't name a config file at all, for example
+`open() "/data/logs/proxy-host-5_access.log" failed (13: Permission denied)` or a missing certificate. Such an error
+is blamed on the host being saved when its new config mentions the path. Otherwise the candidates are the hosts
+whose config mentions the path (any directive). A mention alone is never enough: a candidate is only repaired or
+taken out when the check still fails without the host being saved, **and** the error goes away when the candidate is
+taken out as well. If no host passes that test, the save fails with scope `global`.
 
 Save the affected host again once the cause is fixed.
+
+### File directives in advanced configuration
+
+The advanced configuration of a host or custom location can't write into or pull in configuration files NPM
+generates. These are rejected with `400` (a validation error naming the directive):
+
+- `access_log` / `error_log` with a path in `/data/nginx/` or `/etc/nginx/` (a relative path counts, nginx resolves
+  it in `/etc/nginx/`). Write logs to `/data/logs/` instead. `off`, `stderr`, `syslog:`, `/dev/stdout` and paths
+  starting with a variable are allowed.
+- `include` of a file in `/data/nginx/proxy_host/`, `redirection_host/`, `dead_host/`, `stream/` or `default_host/`.
+  Put shared snippets in `/data/nginx/custom/` (or any other directory) and include them from there.
+
+`root`, `alias` and `include` of your own snippets are not affected. Hosts saved earlier keep working; the check runs
+when a host is created or saved.
 
 ## Status in the API
 
@@ -162,7 +185,8 @@ Two steps keep one broken host from stopping nginx, every site, and the admin UI
 1. Before nginx starts, the container checks the configuration with `nginx -t`, as the user nginx runs as
    (`PUID`/`PGID`). It moves the host config file named in the error (warnings don't count) to `<id>.conf.err` and
    checks again, until nginx accepts the configuration. An error that names no config file, such as a missing
-   certificate, is blamed on the host whose own `ssl_*` directive loads that file. This never stops the container
+   certificate or a log file nginx can't open, is blamed on a host whose config mentions that file only if moving
+   that host's config aside makes the error go away (each candidate is tried in turn, the others are put back). This never stops the container
    from starting.
 2. A few seconds after the backend is up, it regenerates host configs that are missing, were moved to `.err`, or were
    written by an older version (custom locations with the static form only). Then it reloads nginx once. Hosts that
