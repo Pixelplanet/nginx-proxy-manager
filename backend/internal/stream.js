@@ -19,7 +19,9 @@ const internalStream = {
 	 * @returns {Promise}
 	 */
 	create: (access, data) => {
+		internalHost.sanitiseInput(data);
 		const create_certificate = data.certificate_id === "new";
+		let createdId = null;
 
 		if (create_certificate) {
 			delete data.certificate_id;
@@ -42,6 +44,7 @@ const internalStream = {
 				return streamModel.query().insertAndFetch(data_no_domains).then(utils.omitRow(omissions()));
 			})
 			.then((row) => {
+				createdId = row.id;
 				if (create_certificate) {
 					return internalCertificate
 						.createQuickCertificate(access, data)
@@ -67,7 +70,8 @@ const internalStream = {
 			})
 			.then((row) => {
 				// Configure nginx
-				return internalNginx.configure(streamModel, "stream", row).then(() => {
+				return internalNginx.configure(streamModel, "stream", row).then((newMeta) => {
+					row.meta = newMeta;
 					return row;
 				});
 			})
@@ -83,6 +87,13 @@ const internalStream = {
 					.then(() => {
 						return row;
 					});
+			})
+			.catch(async (err) => {
+				// nginx rejected the new stream: don't keep a stream that was never active
+				if (createdId && internalNginx.isHostLevelError(err)) {
+					await streamModel.query().where("id", createdId).patch({ is_deleted: 1 });
+				}
+				throw err;
 			});
 	},
 
@@ -93,8 +104,9 @@ const internalStream = {
 	 * @return {Promise}
 	 */
 	update: (access, data) => {
-		let thisData = data;
+		let thisData = internalHost.sanitiseInput(data);
 		const create_certificate = thisData.certificate_id === "new";
+		let rowBefore = null;
 
 		if (create_certificate) {
 			delete thisData.certificate_id;
@@ -131,6 +143,7 @@ const internalStream = {
 				return row;
 			})
 			.then((row) => {
+				rowBefore = row;
 				// Add domain_names to the data in case it isn't there, so that the audit log renders correctly. The order is important here.
 				thisData = _.assign(
 					{},
@@ -140,31 +153,31 @@ const internalStream = {
 					thisData,
 				);
 
-				return streamModel
-					.query()
-					.patchAndFetchById(row.id, thisData)
-					.then(utils.omitRow(omissions()))
-					.then((saved_row) => {
-						// Add to audit log
-						return internalAuditLog
-							.add(access, {
-								action: "updated",
-								object_type: "stream",
-								object_id: row.id,
-								meta: thisData,
-							})
-							.then(() => {
-								return saved_row;
-							});
-					});
+				return streamModel.query().patchAndFetchById(row.id, thisData);
 			})
 			.then(() => {
-				return internalStream.get(access, { id: thisData.id, expand: ["owner", "certificate"] }).then((row) => {
-					return internalNginx.configure(streamModel, "stream", row).then((new_meta) => {
-						row.meta = new_meta;
-						return _.omit(internalHost.cleanRowCertificateMeta(row), omissions());
-					});
+				return internalStream.get(access, { id: thisData.id, expand: ["owner", "certificate"] });
+			})
+			.then(async (row) => {
+				try {
+					row.meta = await internalNginx.configure(streamModel, "stream", row);
+				} catch (err) {
+					// nginx rejected the change and kept the previous config, so keep the previous data too
+					if (internalNginx.isHostLevelError(err)) {
+						await internalHost.restoreRow(streamModel, rowBefore, thisData);
+					}
+					throw err;
+				}
+
+				// Add to audit log
+				await internalAuditLog.add(access, {
+					action: "updated",
+					object_type: "stream",
+					object_id: row.id,
+					meta: thisData,
 				});
+
+				return _.omit(internalHost.cleanRowCertificateMeta(row), omissions());
 			});
 	},
 
@@ -238,9 +251,7 @@ const internalStream = {
 					})
 					.then(() => {
 						// Delete Nginx Config
-						return internalNginx.deleteConfig("stream", row).then(() => {
-							return internalNginx.reload();
-						});
+						return internalNginx.removeConfigAndReload("stream", row);
 					})
 					.then(() => {
 						// Add to audit log
@@ -291,7 +302,11 @@ const internalStream = {
 					})
 					.then(() => {
 						// Configure nginx
-						return internalNginx.configure(streamModel, "stream", row);
+						return internalNginx.configure(streamModel, "stream", row).catch(async (err) => {
+							// The stream could not be activated, keep it disabled
+							await streamModel.query().where("id", row.id).patch({ enabled: 0 });
+							throw err;
+						});
 					})
 					.then(() => {
 						// Add to audit log
@@ -339,9 +354,7 @@ const internalStream = {
 					})
 					.then(() => {
 						// Delete Nginx Config
-						return internalNginx.deleteConfig("stream", row).then(() => {
-							return internalNginx.reload();
-						});
+						return internalNginx.removeConfigAndReload("stream", row);
 					})
 					.then(() => {
 						// Add to audit log

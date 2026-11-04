@@ -1,8 +1,11 @@
 import _ from "lodash";
+import errs from "../lib/error.js";
 import { castJsonIfNeed } from "../lib/helpers.js";
+import { findDuplicatePath } from "../lib/nginx-locations.js";
 import deadHostModel from "../models/dead_host.js";
 import proxyHostModel from "../models/proxy_host.js";
 import redirectionHostModel from "../models/redirection_host.js";
+import internalNginx from "./nginx.js";
 
 const internalHost = {
 	/**
@@ -62,6 +65,74 @@ const internalHost = {
 		}
 
 		return row;
+	},
+
+	/**
+	 * Input hygiene for incoming create/update data of all host types:
+	 * - strips the server-owned meta keys (the UI sends meta back on save)
+	 * - trims upstream host names and location paths
+	 * - rejects duplicate custom location paths
+	 *
+	 * @param   {Object} data
+	 * @returns {Object} data, modified in place
+	 */
+	sanitiseInput: (data) => {
+		if (!data || typeof data !== "object") {
+			return data;
+		}
+
+		internalNginx.stripServerMeta(data);
+
+		for (const field of ["forward_host", "forwarding_host", "forward_domain_name"]) {
+			if (typeof data[field] === "string") {
+				data[field] = data[field].trim();
+			}
+		}
+
+		if (Array.isArray(data.locations)) {
+			data.locations = data.locations.map((location) => {
+				if (!location || typeof location !== "object") {
+					return location;
+				}
+				const loc = Object.assign({}, location);
+				if (typeof loc.forward_host === "string") {
+					loc.forward_host = loc.forward_host.trim();
+				}
+				if (typeof loc.path === "string") {
+					loc.path = loc.path.trim();
+				}
+				return loc;
+			});
+
+			const duplicate = findDuplicatePath(data.locations);
+			if (duplicate) {
+				throw new errs.ValidationError(`The custom location path "${duplicate}" is used more than once`);
+			}
+		}
+
+		return data;
+	},
+
+	/**
+	 * Puts back the values a failed update patched.
+	 *
+	 * @param   {Object} model
+	 * @param   {Object} before  the row as it was before the update
+	 * @param   {Object} patch   the data that was patched
+	 * @returns {Promise}
+	 */
+	restoreRow: async (model, before, patch) => {
+		const columns = Object.keys(patch || {}).filter(
+			(key) => !["id", "created_on", "modified_on"].includes(key) && Object.hasOwn(before, key),
+		);
+		const values = _.pick(before, columns);
+		// Relations that may have been fetched with the row are not columns
+		for (const relation of ["owner", "certificate", "access_list"]) {
+			delete values[relation];
+		}
+		if (Object.keys(values).length) {
+			await model.query().where("id", before.id).patch(values);
+		}
 	},
 
 	/**

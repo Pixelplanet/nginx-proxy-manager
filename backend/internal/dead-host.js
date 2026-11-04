@@ -19,6 +19,7 @@ const internalDeadHost = {
 	 * @returns {Promise}
 	 */
 	create: async (access, data) => {
+		internalHost.sanitiseInput(data);
 		const createCertificate = data.certificate_id === "new";
 
 		if (createCertificate) {
@@ -56,37 +57,46 @@ const internalDeadHost = {
 
 		const row = await deadHostModel.query().insertAndFetch(thisData).then(utils.omitRow(omissions()));
 
+		let freshRow;
+		try {
+			if (createCertificate) {
+				const cert = await internalCertificate.createQuickCertificate(access, data);
+
+				// update host with cert id
+				await internalDeadHost.update(access, {
+					id: row.id,
+					certificate_id: cert.id,
+				});
+			}
+
+			// re-fetch with cert
+			freshRow = await internalDeadHost.get(access, {
+				id: row.id,
+				expand: ["certificate", "owner"],
+			});
+
+			// Sanity check
+			if (createCertificate && !freshRow.certificate_id) {
+				throw new errs.InternalValidationError("The host was created but the Certificate creation failed.");
+			}
+
+			// Configure nginx
+			freshRow.meta = await internalNginx.configure(deadHostModel, "dead_host", freshRow);
+		} catch (err) {
+			// nginx rejected the new host: don't keep a host that was never active
+			if (internalNginx.isHostLevelError(err)) {
+				await deadHostModel.query().where("id", row.id).patch({ is_deleted: 1 });
+			}
+			throw err;
+		}
+
 		// Add to audit log
 		await internalAuditLog.add(access, {
 			action: "created",
 			object_type: "dead-host",
 			object_id: row.id,
-			meta: thisData,
+			meta: _.assign({}, thisData, { meta: _.assign({}, thisData.meta || {}, freshRow.meta) }),
 		});
-
-		if (createCertificate) {
-			const cert = await internalCertificate.createQuickCertificate(access, data);
-
-			// update host with cert id
-			await internalDeadHost.update(access, {
-				id: row.id,
-				certificate_id: cert.id,
-			});
-		}
-
-		// re-fetch with cert
-		const freshRow = await internalDeadHost.get(access, {
-			id: row.id,
-			expand: ["certificate", "owner"],
-		});
-
-		// Sanity check
-		if (createCertificate && !freshRow.certificate_id) {
-			throw new errs.InternalValidationError("The host was created but the Certificate creation failed.");
-		}
-
-		// Configure nginx
-		await internalNginx.configure(deadHostModel, "dead_host", freshRow);
 
 		return freshRow;
 	},
@@ -98,6 +108,7 @@ const internalDeadHost = {
 	 * @return {Promise}
 	 */
 	update: async (access, data) => {
+		internalHost.sanitiseInput(data);
 		const createCertificate = data.certificate_id === "new";
 		if (createCertificate) {
 			delete data.certificate_id;
@@ -154,6 +165,24 @@ const internalDeadHost = {
 		// do the row update
 		await deadHostModel.query().where({ id: data.id }).patch(data);
 
+		const thisRow = await internalDeadHost.get(access, {
+			id: thisData.id,
+			expand: ["owner", "certificate"],
+		});
+
+		// Configure nginx, there's no need to add nginx config if host is disabled
+		if (thisRow.enabled) {
+			try {
+				thisRow.meta = await internalNginx.configure(deadHostModel, "dead_host", thisRow);
+			} catch (err) {
+				// nginx rejected the change and kept the previous config, so keep the previous data too
+				if (internalNginx.isHostLevelError(err)) {
+					await internalHost.restoreRow(deadHostModel, row, data);
+				}
+				throw err;
+			}
+		}
+
 		// Add to audit log
 		await internalAuditLog.add(access, {
 			action: "updated",
@@ -162,18 +191,6 @@ const internalDeadHost = {
 			meta: thisData,
 		});
 
-		const thisRow = await internalDeadHost.get(access, {
-			id: thisData.id,
-			expand: ["owner", "certificate"],
-		});
-
-		// Configure nginx
-		if (!thisRow.enabled) {
-			// No need to add nginx config if host is disabled
-			return _.omit(internalHost.cleanRowCertificateMeta(thisRow), omissions());
-		}
-		const newMeta = await internalNginx.configure(deadHostModel, "dead_host", thisRow);
-		thisRow.meta = newMeta;
 		return _.omit(internalHost.cleanRowCertificateMeta(thisRow), omissions());
 	},
 
@@ -232,8 +249,7 @@ const internalDeadHost = {
 		});
 
 		// Delete Nginx Config
-		await internalNginx.deleteConfig("dead_host", row);
-		await internalNginx.reload();
+		await internalNginx.removeConfigAndReload("dead_host", row);
 
 		// Add to audit log
 		await internalAuditLog.add(access, {
@@ -272,7 +288,13 @@ const internalDeadHost = {
 		});
 
 		// Configure nginx
-		await internalNginx.configure(deadHostModel, "dead_host", row);
+		try {
+			await internalNginx.configure(deadHostModel, "dead_host", row);
+		} catch (err) {
+			// The host could not be activated, keep it disabled
+			await deadHostModel.query().where("id", row.id).patch({ enabled: 0 });
+			throw err;
+		}
 
 		// Add to audit log
 		await internalAuditLog.add(access, {
@@ -308,8 +330,7 @@ const internalDeadHost = {
 		});
 
 		// Delete Nginx Config
-		await internalNginx.deleteConfig("dead_host", row);
-		await internalNginx.reload();
+		await internalNginx.removeConfigAndReload("dead_host", row);
 
 		// Add to audit log
 		await internalAuditLog.add(access, {
