@@ -18,6 +18,20 @@
 
 log_info 'Validating nginx config ...'
 
+# Earlier versions ran this test as root and left root owned files behind: log files of
+# every host (/data/logs/proxy-host-1_access.log, ...), the pid file, temp and cache
+# directories and /etc/nginx/nginx/off (from `error_log off`). 30-ownership.sh doesn't
+# look inside a directory that is already owned by PUID:PGID, and nginx running as
+# PUID fails to open them ("Permission denied", no file or line to blame). Give back
+# whatever isn't owned by the runtime user. Only the files that are wrong are touched.
+if [ "$PUID" != '0' ]; then
+	for NGINX_VALIDATE_PATH in /data/logs /var/log/nginx /run/nginx /tmp/nginx /var/lib/nginx /var/cache/nginx /etc/nginx/nginx/off; do
+		if [ -e "$NGINX_VALIDATE_PATH" ]; then
+			find "$NGINX_VALIDATE_PATH" \( ! -user "$PUID" -o ! -group "$PGID" \) -exec chown -h "$PUID:$PGID" {} + 2>/dev/null || true
+		fi
+	done
+fi
+
 NGINX_VALIDATE_MAX=100
 NGINX_VALIDATE_COUNT=0
 NGINX_VALIDATE_HOSTS='/data/nginx/(proxy_host|redirection_host|dead_host|stream)/[0-9]+\.conf'
@@ -63,14 +77,6 @@ while [ "$NGINX_VALIDATE_COUNT" -lt "$NGINX_VALIDATE_MAX" ]; do
 	fi
 
 	NGINX_VALIDATE_COUNT=$((NGINX_VALIDATE_COUNT + 1))
-done
-
-# Earlier versions ran this test as root. Give what it may have left behind back to the
-# runtime user, otherwise nginx can't open it.
-for NGINX_VALIDATE_PATH in /run/nginx/nginx.pid /etc/nginx/nginx/off /data/logs/fallback_*.log; do
-	if [ -e "$NGINX_VALIDATE_PATH" ] && [ "$(stat -c '%u:%g' "$NGINX_VALIDATE_PATH")" != "$PUID:$PGID" ]; then
-		chown "$PUID:$PGID" "$NGINX_VALIDATE_PATH" || true
-	fi
 done
 
 unset NGINX_VALIDATE_MAX NGINX_VALIDATE_COUNT NGINX_VALIDATE_HOSTS NGINX_VALIDATE_OUTPUT NGINX_VALIDATE_ERROR NGINX_VALIDATE_FILE NGINX_VALIDATE_PATH NGINX_VALIDATE_CANDIDATE
