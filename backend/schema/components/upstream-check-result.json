@@ -19,11 +19,13 @@
 		},
 		"ok": {
 			"type": "boolean",
-			"description": "True when a TCP connection could be opened"
+			"description": "True when a TCP connection could be opened",
+			"example": true
 		},
 		"code": {
 			"type": "string",
 			"description": "Machine readable result. resolver_mismatch is ok:true but only works with a static upstream",
+			"example": "ok",
 			"enum": [
 				"ok",
 				"invalid_host",
@@ -38,7 +40,8 @@
 		},
 		"message": {
 			"type": "string",
-			"description": "Human readable explanation"
+			"description": "Human readable explanation",
+			"example": "app:8080 is reachable (1.2 ms)."
 		},
 		"addresses": {
 			"type": "array",
@@ -49,15 +52,18 @@
 		},
 		"resolver_ok": {
 			"type": ["boolean", "null"],
-			"description": "Resolves through nginx's resolver (null: IP literal, or no resolver configured)"
+			"description": "Resolves through nginx's resolver (null: IP literal, or no resolver configured)",
+			"example": true
 		},
 		"system_ok": {
 			"type": ["boolean", "null"],
-			"description": "Resolves through the system resolver incl. /etc/hosts (null: IP literal)"
+			"description": "Resolves through the system resolver incl. /etc/hosts (null: IP literal)",
+			"example": true
 		},
 		"ms": {
 			"type": ["number", "null"],
-			"description": "TCP connect time in milliseconds"
+			"description": "TCP connect time in milliseconds",
+			"example": 1.2
 		}
 	}
 }
