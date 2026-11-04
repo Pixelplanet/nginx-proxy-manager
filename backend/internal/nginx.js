@@ -87,7 +87,8 @@ const readFileOrNull = (filename) => {
 
 const hostLabel = (hostType, host) => {
 	const label = HOST_LABELS[hostType] || hostType;
-	const names = Array.isArray(host?.domain_names) && host.domain_names.length ? ` (${host.domain_names.join(", ")})` : "";
+	const names =
+		Array.isArray(host?.domain_names) && host.domain_names.length ? ` (${host.domain_names.join(", ")})` : "";
 	return `${label} #${host?.id}${names}`;
 };
 
@@ -168,6 +169,8 @@ const internalNginx = {
 		const hostType = internalNginx.getFileFriendlyHostType(host_type);
 		const filename = internalNginx.getConfigName(hostType, host.id);
 		const previous = readFileOrNull(filename);
+		// A config kept aside for inspection survives a failed attempt
+		const previousErr = readFileOrNull(`${filename}.err`);
 		const modeResolver = opts.modeResolver || createModeResolver();
 
 		let states = null;
@@ -191,13 +194,13 @@ const internalNginx = {
 			try {
 				configText = await internalNginx.generateConfig(hostType, host, { locationStates: states });
 			} catch (err) {
-				internalNginx.restoreConfig(filename, previous);
-				const error = err instanceof errs.ConfigurationError ? err : new errs.ConfigurationError(err.message, err);
+				await internalNginx.restoreHost(model, host, filename, previous, previousErr, heals > 0);
+				const error =
+					err instanceof errs.ConfigurationError ? err : new errs.ConfigurationError(err.message, err);
 				// the change was not applied, see isHostLevelError()
 				error.configureFailed = true;
 				throw error;
 			}
-			internalNginx.deleteFile(`${filename}.err`);
 
 			const result = await internalNginx.runTest();
 			if (result.ok) {
@@ -241,10 +244,11 @@ const internalNginx = {
 				logger.warn(`${hostLabel(hostType, host)} is offline: ${error.message}`);
 				return meta;
 			}
-			internalNginx.restoreConfig(filename, previous);
+			await internalNginx.restoreHost(model, host, filename, previous, previousErr, heals > 0);
 			throw error;
 		}
 
+		internalNginx.deleteFile(`${filename}.err`);
 		const meta = _.assign({}, host.meta, {
 			nginx_online: true,
 			nginx_err: null,
@@ -262,6 +266,35 @@ const internalNginx = {
 			await internalNginx.reloadNginx({ skipTest: true });
 		}
 		return meta;
+	},
+
+	/**
+	 * Puts a host back the way it was before a configure attempt that did not apply: its config file,
+	 * the .err file kept for inspection and, when other hosts were repaired during the attempt, its meta.
+	 * Repairing another host runs a nested configure that can blame this host's new file and mark this host
+	 * offline, although its previous config stays active.
+	 *
+	 * @param   {Object}       model
+	 * @param   {Object}       host
+	 * @param   {String}       filename
+	 * @param   {String|null}  previous     previous content of the config file
+	 * @param   {String|null}  previousErr  previous content of the .err file
+	 * @param   {Boolean}      restoreMeta
+	 * @returns {Promise}
+	 */
+	restoreHost: async (model, host, filename, previous, previousErr, restoreMeta) => {
+		internalNginx.restoreConfig(filename, previous);
+		internalNginx.restoreConfig(`${filename}.err`, previousErr);
+		if (restoreMeta) {
+			try {
+				await model
+					.query()
+					.where("id", host.id)
+					.patch({ meta: host.meta || {} });
+			} catch (err) {
+				logger.warn(`Could not restore the meta of the host of ${filename}: ${err.message}`);
+			}
+		}
 	},
 
 	/**
@@ -373,7 +406,9 @@ const internalNginx = {
 						reload: false,
 						depth: (depth || 0) + 1,
 					});
-					logger.warn(`Regenerated the nginx config of ${hostLabel(other.host_type, row)} because nginx rejected it`);
+					logger.warn(
+						`Regenerated the nginx config of ${hostLabel(other.host_type, row)} because nginx rejected it`,
+					);
 					return true;
 				} catch (err) {
 					debug(logger, `Regenerating ${other.host_type} #${other.host_id} failed:`, err.message);
@@ -394,7 +429,9 @@ const internalNginx = {
 			const meta = internalNginx.buildOfflineMeta(row.meta, error, null, "Disabled automatically: ");
 			await model.query().where("id", row.id).patch({ meta });
 		}
-		logger.warn(`Disabled the nginx config of ${hostLabel(other.host_type, row || { id: other.host_id })}: ${error.message}`);
+		logger.warn(
+			`Disabled the nginx config of ${hostLabel(other.host_type, row || { id: other.host_id })}: ${error.message}`,
+		);
 		return true;
 	},
 
