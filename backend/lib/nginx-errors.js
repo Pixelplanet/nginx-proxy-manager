@@ -40,7 +40,9 @@ const parseNginxTestOutput = (output) => {
 		"";
 
 	// "nginx: [emerg] msg" or "2026/11/04 10:00:00 [emerg] 12#12: msg"
-	let message = errorLine.replace(/^.*?\[(emerg|alert|crit|error|warn)\]\s*(\d+#\d+:\s*)?/, "").replace(/^nginx:\s*/, "");
+	let message = errorLine
+		.replace(/^.*?\[(emerg|alert|crit|error|warn)\]\s*(\d+#\d+:\s*)?/, "")
+		.replace(/^nginx:\s*/, "");
 	let file = null;
 	let line = null;
 
@@ -102,7 +104,7 @@ const RULES = [
 	{
 		regex: /invalid port in upstream "([^"]+)"/,
 		text: (m) => `invalid port in upstream "${m[1]}"`,
-		hint: "The port must be a number between 1 and 65535. A forward path must start with \"/\".",
+		hint: 'The port must be a number between 1 and 65535. A forward path must start with "/".',
 	},
 	{
 		regex: /invalid URL prefix in "([^"]+)"/,
@@ -228,11 +230,25 @@ const sentence = (str) => {
 	return /[.!?]$/.test(s) ? s : `${s}.`;
 };
 
+/**
+ * @param   {Object}  meta  host meta written by configure
+ * @returns {boolean} true when the host is offline because an upstream name did not resolve, or a custom
+ *                    location is unresolved. Both can fix themselves once the upstream container is up.
+ */
+const mayResolveLater = (meta) => {
+	if (meta?.nginx_online === false) {
+		const text = `${meta.nginx_details?.nginx_output || ""} ${meta.nginx_err || ""}`;
+		return /host not found in upstream/i.test(text);
+	}
+	return Array.isArray(meta?.nginx_locations) && meta.nginx_locations.some((loc) => loc?.status === "unresolved");
+};
+
 export {
-	MANAGED_FILE_REGEX,
 	capitalise,
 	cleanNginxOutput,
 	humaniseNginxMessage,
+	MANAGED_FILE_REGEX,
+	mayResolveLater,
 	parseManagedFile,
 	parseNginxTestOutput,
 	sentence,

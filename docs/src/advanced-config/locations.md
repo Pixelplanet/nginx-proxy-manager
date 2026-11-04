@@ -134,6 +134,10 @@ Two steps keep one broken host from stopping nginx, every site, and the admin UI
 2. A few seconds after the backend is up, it regenerates host configs that are missing, were moved to `.err`, or were
    written by an older version (custom locations with the static form only). Then it reloads nginx once. Hosts that
    still fail are shown as offline with the reason.
+3. Right after a host reboot, upstream containers may not be resolvable yet. Hosts that end offline because nginx
+   could not find an upstream host (`host not found in upstream`, typical for streams), and proxy hosts with
+   unresolved custom locations, are tried again after 30 seconds, 2 minutes and 5 minutes. A host that still fails
+   after that stays offline until it is saved again.
 
 To skip the second step:
 

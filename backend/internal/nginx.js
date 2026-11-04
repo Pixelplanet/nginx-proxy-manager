@@ -8,6 +8,7 @@ import errs from "../lib/error.js";
 import {
 	capitalise,
 	humaniseNginxMessage,
+	mayResolveLater,
 	parseManagedFile,
 	parseNginxTestOutput,
 	sentence,
@@ -59,6 +60,8 @@ const HOST_LABELS = {
 const MAX_HEAL_ITERATIONS = 100;
 // Extra configure iterations on top of one per location
 const EXTRA_CONFIGURE_ITERATIONS = 10;
+// When the startup reconcile tries hosts again whose upstream names did not resolve yet
+const RECONCILE_RETRY_DELAYS = [30 * 1000, 2 * 60 * 1000, 5 * 60 * 1000];
 
 /**
  * Every sequence that writes nginx config, tests it and reloads nginx runs through this lock,
@@ -1105,22 +1108,38 @@ const internalNginx = {
 	 * (by the prepare/55-nginx-validate.sh startup check or a failed test), or was written by an older
 	 * version (literal custom location upstreams). Never throws.
 	 *
+	 * Upstream names often don't resolve yet right after a host reboot (all containers start at once).
+	 * Hosts that end offline because of that, and proxy hosts with unresolved custom locations, are tried
+	 * again a few times with backoff (RECONCILE_RETRY_DELAYS), so they come back on their own.
+	 *
+	 * @param   {Object}  [opts]
+	 * @param   {Object}  [opts.only]     {host_type: [ids]}, configure exactly these hosts (retry pass)
+	 * @param   {Number}  [opts.attempt]  retry attempt, 0 for the startup pass
 	 * @returns {Promise<Object>} summary
 	 */
-	reconcile: () =>
+	reconcile: (opts = {}) =>
 		withLock(async () => {
-			const summary = { checked: 0, regenerated: 0, offline: 0, failed: 0 };
+			const attempt = opts.attempt || 0;
+			const summary = { checked: 0, regenerated: 0, offline: 0, failed: 0, retry: {} };
 			const modeResolver = createModeResolver();
 
 			for (const [hostType, model] of Object.entries(HOST_MODELS)) {
+				const only = opts.only ? opts.only[hostType] : null;
+				if (opts.only && !only?.length) {
+					continue;
+				}
 				let rows = [];
 				try {
-					rows = await model
+					const query = model
 						.query()
 						.where("is_deleted", 0)
 						.andWhere("enabled", 1)
 						.allowGraph(model.defaultAllowGraph)
 						.withGraphFetched(`[${model.defaultExpand.join(", ")}]`);
+					if (only) {
+						query.whereIn("id", only);
+					}
+					rows = await query;
 				} catch (err) {
 					logger.error(`Startup reconcile: could not load ${hostType} rows: ${err.message}`);
 					continue;
@@ -1131,6 +1150,7 @@ const internalNginx = {
 					const filename = internalNginx.getConfigName(hostType, row.id);
 					const text = readFileOrNull(filename);
 					const needsWork =
+						!!only ||
 						text === null ||
 						fs.existsSync(`${filename}.err`) ||
 						(hostType === "proxy_host" &&
@@ -1152,6 +1172,10 @@ const internalNginx = {
 						} else {
 							summary.regenerated++;
 						}
+						if (mayResolveLater(meta)) {
+							summary.retry[hostType] = summary.retry[hostType] || [];
+							summary.retry[hostType].push(row.id);
+						}
 					} catch (err) {
 						summary.failed++;
 						logger.error(`Startup reconcile: ${hostLabel(hostType, row)}: ${err.message}`);
@@ -1166,9 +1190,17 @@ const internalNginx = {
 					logger.error(`Startup reconcile: nginx reload failed: ${err.message}`);
 				}
 			}
+			const retries = Object.values(summary.retry).reduce((sum, ids) => sum + ids.length, 0);
 			logger.info(
-				`Startup reconcile: checked ${summary.checked} hosts, regenerated ${summary.regenerated}, offline ${summary.offline}, failed ${summary.failed}`,
+				`Startup reconcile${attempt ? ` (retry ${attempt})` : ""}: checked ${summary.checked} hosts, regenerated ${summary.regenerated}, offline ${summary.offline}, failed ${summary.failed}${retries ? `, ${retries} waiting for DNS` : ""}`,
 			);
+
+			if (retries && attempt < RECONCILE_RETRY_DELAYS.length) {
+				const timer = setTimeout(() => {
+					internalNginx.reconcile({ only: summary.retry, attempt: attempt + 1 });
+				}, RECONCILE_RETRY_DELAYS[attempt]);
+				timer.unref?.();
+			}
 			return summary;
 		}).catch((err) => {
 			logger.error(`Startup reconcile failed: ${err.message}`);

@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
 	cleanNginxOutput,
 	humaniseNginxMessage,
+	mayResolveLater,
 	parseManagedFile,
 	parseNginxTestOutput,
 	sentence,
@@ -78,7 +79,10 @@ describe("humaniseNginxMessage", () => {
 		['host not found in upstream "foo"', 'host "foo" could not be resolved'],
 		['invalid port in upstream "foo:99999"', 'invalid port in upstream "foo:99999"'],
 		['unknown directive "proxy_passs"', 'unknown directive "proxy_passs"'],
-		['invalid number of arguments in "proxy_set_header" directive', 'wrong number of arguments for "proxy_set_header"'],
+		[
+			'invalid number of arguments in "proxy_set_header" directive',
+			'wrong number of arguments for "proxy_set_header"',
+		],
 		['"proxy_buffering" directive is duplicate', '"proxy_buffering" is set more than once'],
 		['duplicate location "/api"', 'the location "/api" is defined more than once'],
 		['unexpected "}"', 'unexpected "}"'],
@@ -95,7 +99,10 @@ describe("humaniseNginxMessage", () => {
 			'cannot load certificate "/etc/letsencrypt/live/npm-1/fullchain.pem": BIO_new_file() failed (SSL: error:80000002)',
 			'the certificate file "/etc/letsencrypt/live/npm-1/fullchain.pem" could not be loaded',
 		],
-		['no "ssl_certificate" is defined for the "listen ... ssl" directive', "SSL is enabled but no certificate is defined"],
+		[
+			'no "ssl_certificate" is defined for the "listen ... ssl" directive',
+			"SSL is enabled but no certificate is defined",
+		],
 		['invalid parameter "foo"', 'invalid parameter "foo"'],
 		['"location" directive is not allowed here', 'a "location" block is not allowed here'],
 		[
@@ -124,5 +131,47 @@ describe("sentence", () => {
 	it("adds a full stop once", () => {
 		assert.equal(sentence("abc"), "abc.");
 		assert.equal(sentence("abc."), "abc.");
+	});
+});
+
+describe("mayResolveLater", () => {
+	it("is true for a host that is offline because an upstream did not resolve", () => {
+		assert.equal(
+			mayResolveLater({
+				nginx_online: false,
+				nginx_err: "Host not found.",
+				nginx_details: {
+					nginx_output: 'nginx: [emerg] host not found in upstream "app:80" in /data/nginx/stream/3.conf:13',
+				},
+			}),
+			true,
+		);
+	});
+
+	it("is false for a host that is offline for another reason", () => {
+		assert.equal(
+			mayResolveLater({
+				nginx_online: false,
+				nginx_err: "Unknown directive.",
+				nginx_details: { nginx_output: 'nginx: [emerg] unknown directive "foo"' },
+			}),
+			false,
+		);
+	});
+
+	it("is true for a proxy host with an unresolved custom location", () => {
+		assert.equal(
+			mayResolveLater({
+				nginx_online: true,
+				nginx_locations: [{ status: "ok" }, { status: "unresolved" }],
+			}),
+			true,
+		);
+	});
+
+	it("is false for an online host without unresolved locations", () => {
+		assert.equal(mayResolveLater({ nginx_online: true, nginx_locations: [{ status: "quarantined" }] }), false);
+		assert.equal(mayResolveLater({ nginx_online: true }), false);
+		assert.equal(mayResolveLater(null), false);
 	});
 });
