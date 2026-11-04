@@ -4,8 +4,14 @@ import type { UpstreamCandidate, UpstreamCandidates } from "src/api/backend";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { allowedPrefill, candidatePrefill, groupCandidates, UpstreamField } from "./UpstreamField";
 
+const hookState = vi.hoisted(() => ({ data: undefined as unknown, refresh: () => {} }));
 vi.mock("src/hooks", () => ({
-	useUpstreamCandidates: () => ({ data: undefined, isFetching: false, refresh: vi.fn(), isRefreshing: false }),
+	useUpstreamCandidates: () => ({
+		data: hookState.data,
+		isFetching: false,
+		refresh: hookState.refresh,
+		isRefreshing: false,
+	}),
 }));
 
 const candidate = (c: Partial<UpstreamCandidate>): UpstreamCandidate => ({
@@ -53,7 +59,7 @@ function Harness({
 	onSelectCandidate,
 	initial = "",
 }: {
-	candidates: UpstreamCandidates;
+	candidates?: UpstreamCandidates;
 	onChange?: (v: string) => void;
 	onSelectCandidate?: (...args: any[]) => void;
 	initial?: string;
@@ -71,6 +77,7 @@ function Harness({
 				}}
 				onSelectCandidate={onSelectCandidate}
 			/>
+			<input id="port" aria-label="Forward Port" />
 			<output data-testid="value">{value}</output>
 		</>
 	);
@@ -345,5 +352,51 @@ describe("allowedPrefill", () => {
 
 	it("returns nothing for an empty prefill", () => {
 		expect(allowedPrefill({}, { port: "" }, {})).toEqual({});
+	});
+});
+
+describe("UpstreamField selection guard", () => {
+	afterEach(() => {
+		cleanup();
+		hookState.data = undefined;
+	});
+
+	it("Space in an empty field with the menu open doesn't pick the focused option", () => {
+		const onSelect = vi.fn();
+		render(<Harness candidates={prefixData} onSelectCandidate={onSelect} />);
+		clickControl();
+		expect(document.querySelector(".react-select__menu")).not.toBeNull();
+		fireEvent.keyDown(hostInput(), { key: " ", code: "Space" });
+		expect(screen.getByTestId("value")).toHaveTextContent(/^$/);
+		expect(hostInput().value).toBe("");
+		expect(onSelect).not.toHaveBeenCalled();
+	});
+
+	it("Space doesn't pick an option even after navigating with the arrows", () => {
+		const onSelect = vi.fn();
+		render(<Harness candidates={prefixData} onSelectCandidate={onSelect} />);
+		const input = openMenu();
+		expect(focusedOption()).toHaveTextContent("app-db");
+		fireEvent.keyDown(input, { key: " ", code: "Space" });
+		expect(screen.getByTestId("value")).toHaveTextContent(/^$/);
+		expect(onSelect).not.toHaveBeenCalled();
+	});
+
+	it("Space with a saved value and the menu open keeps the value", () => {
+		const onSelect = vi.fn();
+		render(<Harness candidates={prefixData} initial="web" onSelectCandidate={onSelect} />);
+		clickControl();
+		// clear the text, menu stays open, then Space
+		fireEvent.change(hostInput(), { target: { value: "" } });
+		fireEvent.keyDown(hostInput(), { key: " ", code: "Space" });
+		expect(screen.getByTestId("value")).toHaveTextContent(/^$/);
+		expect(onSelect).not.toHaveBeenCalled();
+	});
+
+	it("a click on the 'use value' option still creates it", () => {
+		render(<Harness candidates={prefixData} />);
+		typeInto("new-host ");
+		fireEvent.click(screen.getByText(/new-host/, { selector: ".react-select__option" }));
+		expect(screen.getByTestId("value")).toHaveTextContent(/^new-host$/);
 	});
 });

@@ -12,6 +12,7 @@ import {
 	useState,
 } from "react";
 import {
+	type ActionMeta,
 	components,
 	createFilter,
 	type GroupBase,
@@ -114,12 +115,26 @@ export function usePrefillGuard() {
 // replace what was typed with it.
 const NavigatedContext = createContext(false);
 
+// Called right before an option is picked by a click, so the pick is allowed
+const OptionClickContext = createContext<() => void>(() => {});
+
 const Option = (props: OptionProps<UpstreamOption, false, GroupBase<UpstreamOption>>) => {
 	const navigated = useContext(NavigatedContext);
+	const allowClick = useContext(OptionClickContext);
 	const c = props.data.candidate;
 	const isFocused = props.isFocused && navigated;
+	const { onClick } = props.innerProps;
+	const innerProps = {
+		...props.innerProps,
+		onClick: onClick
+			? (e: Parameters<typeof onClick>[0]) => {
+					allowClick();
+					onClick(e);
+				}
+			: undefined,
+	};
 	if (!c) {
-		return <components.Option {...props} isFocused={isFocused} />;
+		return <components.Option {...props} innerProps={innerProps} isFocused={isFocused} />;
 	}
 	const extra = [
 		c.ports?.length ? intl.formatMessage({ id: "upstream.ports" }, { ports: c.ports.join(", ") }) : null,
@@ -127,7 +142,7 @@ const Option = (props: OptionProps<UpstreamOption, false, GroupBase<UpstreamOpti
 		c.usedBy ? intl.formatMessage({ id: "upstream.used-by" }, { count: c.usedBy }) : null,
 	].filter(Boolean);
 	return (
-		<components.Option {...props} isFocused={isFocused}>
+		<components.Option {...props} innerProps={innerProps} isFocused={isFocused}>
 			<div className="d-flex align-items-center">
 				<span className="me-1">{SOURCE_ICON[c.source]}</span>
 				<strong className="text-break">{c.host}</strong>
@@ -254,7 +269,23 @@ export function UpstreamField({
 		return (option: Parameters<typeof byInput>[0], text: string) => text === openedWith || byInput(option, text);
 	}, [openedWith]);
 
+	// Whether react-select may pick an option right now. Only a click on an
+	// option and Enter on an option the user navigated to may; react-select
+	// also picks the (invisibly) focused option on Space in an empty field, on
+	// Tab (unless tabSelectsValue is off) and possibly in later versions on
+	// other keys. Those are all blocked in the onChange / onCreateOption below.
+	const pickAllowed = useRef(false);
+	const allowClick = useCallback(() => {
+		pickAllowed.current = true;
+	}, []);
+	const takePick = () => {
+		const allowed = pickAllowed.current;
+		pickAllowed.current = false;
+		return allowed;
+	};
+
 	const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+		pickAllowed.current = e.key === "Enter" && menuIsOpen && navigated;
 		switch (e.key) {
 			case "ArrowUp":
 			case "ArrowDown":
@@ -268,12 +299,24 @@ export function UpstreamField({
 				}
 				setNavigated(true);
 				break;
+			case "Home":
+			case "End":
+				// react-select moves the focus to the first / last option
+				if (menuIsOpen) setNavigated(true);
+				break;
 			case "Enter":
 				// Without an option chosen by keyboard, Enter keeps the typed text and
 				// just closes the menu.
 				if (menuIsOpen && !navigated) {
 					e.preventDefault();
 					setMenuIsOpen(false);
+				}
+				break;
+			case " ":
+				// react-select would pick the focused option on Space in an empty
+				// field. A leading space is no use in a host name either.
+				if (menuIsOpen && !input) {
+					e.preventDefault();
 				}
 				break;
 		}
@@ -284,7 +327,10 @@ export function UpstreamField({
 		onChange(v);
 	};
 
-	const handleChange = (opt: SingleValue<UpstreamOption>) => {
+	const handleChange = (opt: SingleValue<UpstreamOption>, meta: ActionMeta<UpstreamOption>) => {
+		if (meta.action === "select-option" && !takePick()) {
+			return;
+		}
 		if (!opt) {
 			setValue("");
 			return;
@@ -300,65 +346,71 @@ export function UpstreamField({
 	return (
 		<MenuFooterContext.Provider value={footer}>
 			<NavigatedContext.Provider value={navigated}>
-				<div className={cn({ "is-invalid": isInvalid })}>
-					<CreatableSelect<UpstreamOption, false, GroupBase<UpstreamOption>>
-						inputId={id}
-						className={cn("react-select-container upstream-field", { "is-invalid": isInvalid })}
-						classNamePrefix="react-select"
-						options={groups}
-						value={selected}
-						inputValue={input}
-						// The typed text *is* the value, so it's shown as input text rather than as a
-						// selected chip, and stays editable.
-						controlShouldRenderValue={false}
-						isClearable
-						isLoading={!candidates && query.isFetching}
-						placeholder={placeholder}
-						components={{ Option, MenuList, Input }}
-						menuIsOpen={menuIsOpen}
-						onMenuOpen={() => {
-							setWanted(true);
-							setMenuIsOpen(true);
-							// When typing opens the menu this is the text before the keystroke
-							setOpenedWith(input);
-						}}
-						onMenuClose={() => {
-							setMenuIsOpen(false);
-							setNavigated(false);
-							setOpenedWith(null);
-						}}
-						onFocus={() => setWanted(true)}
-						onBlur={onBlur}
-						onKeyDown={handleKeyDown}
-						// Tab moves on to the next field and never replaces the typed text
-						tabSelectsValue={false}
-						filterOption={filterOption}
-						onInputChange={(v, meta) => {
-							// Ignore the resets react-select does on blur / menu close / select
-							if (meta.action === "input-change") {
+				<OptionClickContext.Provider value={allowClick}>
+					<div className={cn({ "is-invalid": isInvalid })}>
+						<CreatableSelect<UpstreamOption, false, GroupBase<UpstreamOption>>
+							inputId={id}
+							className={cn("react-select-container upstream-field", { "is-invalid": isInvalid })}
+							classNamePrefix="react-select"
+							options={groups}
+							value={selected}
+							inputValue={input}
+							// The typed text *is* the value, so it's shown as input text rather than as a
+							// selected chip, and stays editable.
+							controlShouldRenderValue={false}
+							isClearable
+							isLoading={!candidates && query.isFetching}
+							placeholder={placeholder}
+							components={{ Option, MenuList, Input }}
+							menuIsOpen={menuIsOpen}
+							onMenuOpen={() => {
+								setWanted(true);
+								setMenuIsOpen(true);
+								// When typing opens the menu this is the text before the keystroke
+								setOpenedWith(input);
+							}}
+							onMenuClose={() => {
+								setMenuIsOpen(false);
 								setNavigated(false);
-								setValue(v);
-							}
-						}}
-						onChange={handleChange}
-						onCreateOption={(v) => setValue(v.trim())}
-						formatCreateLabel={(v) => intl.formatMessage({ id: "upstream.use-value" }, { value: v })}
-						isValidNewOption={(v, _selected, options) => {
-							const t = v.trim();
-							if (!t || t === value) return false;
-							return !options.some(
-								(o: any) => o.value === t || o.options?.some((i: any) => i.value === t),
-							);
-						}}
-						noOptionsMessage={() => intl.formatMessage({ id: "upstream.no-options" })}
-						loadingMessage={() => intl.formatMessage({ id: "upstream.loading" })}
-						styles={{
-							option: (base) => ({ ...base, height: "100%" }),
-							control: (base) =>
-								isInvalid ? { ...base, borderColor: "var(--tblr-form-invalid-border-color)" } : base,
-						}}
-					/>
-				</div>
+								setOpenedWith(null);
+							}}
+							onFocus={() => setWanted(true)}
+							onBlur={onBlur}
+							onKeyDown={handleKeyDown}
+							// Tab moves on to the next field and never replaces the typed text
+							tabSelectsValue={false}
+							filterOption={filterOption}
+							onInputChange={(v, meta) => {
+								// Ignore the resets react-select does on blur / menu close / select
+								if (meta.action === "input-change") {
+									setNavigated(false);
+									setValue(v);
+								}
+							}}
+							onChange={handleChange}
+							onCreateOption={(v) => {
+								if (takePick()) setValue(v.trim());
+							}}
+							formatCreateLabel={(v) => intl.formatMessage({ id: "upstream.use-value" }, { value: v })}
+							isValidNewOption={(v, _selected, options) => {
+								const t = v.trim();
+								if (!t || t === value) return false;
+								return !options.some(
+									(o: any) => o.value === t || o.options?.some((i: any) => i.value === t),
+								);
+							}}
+							noOptionsMessage={() => intl.formatMessage({ id: "upstream.no-options" })}
+							loadingMessage={() => intl.formatMessage({ id: "upstream.loading" })}
+							styles={{
+								option: (base) => ({ ...base, height: "100%" }),
+								control: (base) =>
+									isInvalid
+										? { ...base, borderColor: "var(--tblr-form-invalid-border-color)" }
+										: base,
+							}}
+						/>
+					</div>
+				</OptionClickContext.Provider>
 			</NavigatedContext.Provider>
 		</MenuFooterContext.Provider>
 	);
