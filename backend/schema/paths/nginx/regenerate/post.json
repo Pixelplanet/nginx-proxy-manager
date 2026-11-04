@@ -1,7 +1,7 @@
 {
 	"operationId": "regenerateNginxConfigs",
 	"summary": "Regenerate all host configs",
-	"description": "Rewrites the nginx config files of all enabled hosts from the database and reloads nginx once. Hosts that nginx rejects are taken offline, broken custom locations are disabled, as on save. Working hosts stay online. Only one regeneration runs at a time. Requires admin.",
+	"description": "Rewrites the nginx config files of all enabled hosts from the database and reloads nginx once. Hosts that nginx rejects are taken offline, as on save. Working hosts stay online. Only one regeneration runs at a time. Requires admin.",
 	"tags": ["settings"],
 	"security": [
 		{

@@ -942,7 +942,7 @@
 		"defaultMessage": "Loo uuesti"
 	},
 	"settings.nginx.regenerate.confirm-offline": {
-		"defaultMessage": "Host, mille nginx tagasi lükkab, võetakse võrgust maha ja kuvatakse hiljem loendis. Vigased kohandatud asukohad keelatakse, täpselt nagu hosti salvestamisel."
+		"defaultMessage": "Host, mille nginx tagasi lükkab, võetakse võrgust maha ja kuvatakse hiljem loendis, täpselt nagu hosti salvestamisel. Teisi hoste see ei mõjuta."
 	},
 	"settings.nginx.regenerate.confirm-title": {
 		"defaultMessage": "Kas luua kõigi hostide konfiguratsioonid uuesti?"

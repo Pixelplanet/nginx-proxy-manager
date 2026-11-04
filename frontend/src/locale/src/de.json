@@ -942,7 +942,7 @@
 		"defaultMessage": "Neu erzeugen"
 	},
 	"settings.nginx.regenerate.confirm-offline": {
-		"defaultMessage": "Ein Host, den Nginx ablehnt, wird offline genommen und danach aufgelistet. Fehlerhafte benutzerdefinierte Locations werden deaktiviert, genau wie beim Speichern des Hosts."
+		"defaultMessage": "Ein Host, den Nginx ablehnt, wird offline genommen und danach aufgelistet, genau wie beim Speichern des Hosts. Die anderen Hosts sind davon nicht betroffen."
 	},
 	"settings.nginx.regenerate.confirm-title": {
 		"defaultMessage": "Alle Host-Konfigurationen neu erzeugen?"

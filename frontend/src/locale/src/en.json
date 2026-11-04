@@ -942,7 +942,7 @@
 		"defaultMessage": "Regenerate"
 	},
 	"settings.nginx.regenerate.confirm-offline": {
-		"defaultMessage": "A host that nginx rejects is taken offline and listed afterwards. Broken custom locations are disabled, just as when saving the host."
+		"defaultMessage": "A host that nginx rejects is taken offline and listed afterwards, just as when saving the host. The other hosts are not affected."
 	},
 	"settings.nginx.regenerate.confirm-title": {
 		"defaultMessage": "Regenerate all host configs?"

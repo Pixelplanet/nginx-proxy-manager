@@ -200,9 +200,9 @@ Regenerate all host configs** (admin only).
 
 Every enabled proxy host, redirection host, 404 host and stream is regenerated and tested with nginx, then nginx is
 reloaded once. Working hosts stay online, there is no downtime. A host that nginx rejects is taken offline instead of
-blocking the others, and broken custom locations are disabled, just as when you save the host. Afterwards the page
-lists the hosts that went offline, the hosts that could not be regenerated (they keep their previous config, eg.
-because a certificate file is missing) and the hosts with custom locations that don't work. Click a host to open it.
+blocking the others, just as when you save the host. Afterwards the page lists the hosts that went offline, the hosts
+that could not be regenerated (they keep their previous config, eg. because a certificate file is missing) and the
+hosts that are online but reported a warning. Click a host to open it.
 
 The same is available from the API (`POST /api/nginx/regenerate`, optional body `{"host_types": ["proxy_host"]}`) and
 from the command line inside the container:

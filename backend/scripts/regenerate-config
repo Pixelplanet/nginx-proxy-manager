@@ -71,7 +71,7 @@ if (DRY_RUN) {
 }
 
 // The same code path as Settings > Nginx Configuration in the UI (POST /api/nginx/regenerate):
-// hosts nginx rejects are taken offline, broken custom locations are quarantined, nginx reloads once.
+// every host is configured as on save, hosts nginx rejects are taken offline, nginx reloads once.
 try {
 	// No --restore-aside: the backend (a different process, it doesn't share this process' lock) may be testing a
 	// config right now with another host's file moved aside, putting that file back would break its test.

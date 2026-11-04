@@ -4,11 +4,11 @@
 describe('Regenerate all host configs', () => {
 	// Network aliases of the fullstack container, requests carry this Host header
 	const domain = 'website3.example.com';
-	const warnDomain = 'website4.example.com';
+	const deadDomain = 'website4.example.com';
 
 	let token;
 	let hostId;
-	let warnHostId;
+	let deadHostId;
 
 	const proxyHost = (domainName, extra) => {
 		return Object.assign({
@@ -49,25 +49,16 @@ describe('Regenerate all host configs', () => {
 			});
 			cy.task('backendApiPost', {
 				token: token,
-				path:  '/api/nginx/proxy-hosts',
-				data:  proxyHost(warnDomain, {
-					locations: [
-						{
-							path:           '/ghost',
-							forward_scheme: 'http',
-							forward_host:   'nonexistent-regenerate-npm-test',
-							forward_port:   80,
-						},
-					],
-				}),
+				path:  '/api/nginx/dead-hosts',
+				data:  { domain_names: [deadDomain] },
 			}).then((data) => {
-				warnHostId = data.id;
-				expect(data.meta.nginx_locations[0]).to.include({ status: 'unresolved' });
+				deadHostId = data.id;
+				expect(data.meta).to.have.property('nginx_online', true);
 			});
 		});
 	});
 
-	it('Should regenerate all hosts and report locations that do not work', () => {
+	it('Should regenerate all hosts and report the result', () => {
 		cy.task('backendApiPost', {
 			token: token,
 			path:  '/api/nginx/regenerate',
@@ -79,11 +70,10 @@ describe('Regenerate all host configs', () => {
 			expect(data.offline).to.be.an('array');
 			expect(data.failed).to.have.length(0);
 			expect(data.duration_ms).to.be.a('number');
-			expect(data.offline.map((h) => h.id)).not.to.include(hostId);
-
-			const warning = data.warnings.find((w) => w.host_type === 'proxy_host' && w.id === warnHostId);
-			expect(warning).to.include({ name: warnDomain });
-			expect(warning.message).to.contain('/ghost');
+			expect(data.warnings).to.be.an('array');
+			const problems = [...data.offline, ...data.warnings];
+			expect(problems.map((h) => `${h.host_type}:${h.id}`)).not.to.include(`proxy_host:${hostId}`);
+			expect(problems.map((h) => `${h.host_type}:${h.id}`)).not.to.include(`dead_host:${deadHostId}`);
 		});
 
 		// Still served after the reload
@@ -93,10 +83,17 @@ describe('Regenerate all host configs', () => {
 		});
 	});
 
-	it('Should keep the host online and its status fresh', () => {
+	it('Should keep the hosts online and their status fresh', () => {
 		cy.task('backendApiGet', {
 			token: token,
 			path:  `/api/nginx/proxy-hosts/${hostId}`,
+		}).then((data) => {
+			expect(data.meta).to.have.property('nginx_online', true);
+			expect(data.meta).to.have.property('nginx_err', null);
+		});
+		cy.task('backendApiGet', {
+			token: token,
+			path:  `/api/nginx/dead-hosts/${deadHostId}`,
 		}).then((data) => {
 			expect(data.meta).to.have.property('nginx_online', true);
 			expect(data.meta).to.have.property('nginx_err', null);
@@ -110,8 +107,8 @@ describe('Regenerate all host configs', () => {
 			data:  { host_types: ['dead_host'] },
 		}).then((data) => {
 			cy.validateSwaggerSchema('post', 200, '/nginx/regenerate', data);
-			// no 404 hosts in this spec
-			expect(data.warnings.map((w) => w.id)).not.to.include(warnHostId);
+			expect(data.checked).to.be.at.least(1);
+			expect(data.failed).to.have.length(0);
 			const types = [...data.offline, ...data.failed, ...data.warnings].map((h) => h.host_type);
 			types.forEach((type) => expect(type).to.equal('dead_host'));
 		});
@@ -177,10 +174,11 @@ describe('Regenerate all host configs', () => {
 	});
 
 	after(() => {
-		[hostId, warnHostId].forEach((id) => {
-			if (id) {
-				cy.task('backendApiDelete', { token: token, path: `/api/nginx/proxy-hosts/${id}` });
-			}
-		});
+		if (hostId) {
+			cy.task('backendApiDelete', { token: token, path: `/api/nginx/proxy-hosts/${hostId}` });
+		}
+		if (deadHostId) {
+			cy.task('backendApiDelete', { token: token, path: `/api/nginx/dead-hosts/${deadHostId}` });
+		}
 	});
 });
