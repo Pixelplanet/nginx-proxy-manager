@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
+import { isValidHost } from "./util.js";
 
 /**
  * Read-only Docker Engine API client used for upstream discovery.
@@ -182,6 +183,35 @@ const ownAddresses = (interfaces = os.networkInterfaces()) =>
 const safeName = (name) => `${name ?? ""}`.replace(/^\//, "");
 
 /**
+ * Container names usable as an upstream host. Legacy link aliases ("/web/db") contain a slash
+ * and are not resolvable names, so they are dropped.
+ *
+ * @param   {Array} names  Names from /containers/json
+ * @returns {string[]}
+ */
+const usableNames = (names) =>
+	(Array.isArray(names) ? names : []).map(safeName).filter((name) => !name.includes("/") && isValidHost(name));
+
+/**
+ * Whether an inspected container is really us: at least one of its network addresses must be one
+ * of ours. A container without any address (host network) cannot be disproved and is accepted.
+ *
+ * @param   {object}   container  /containers/{id}/json response
+ * @param   {string[]} mine       ownAddresses()
+ * @returns {boolean}
+ */
+const looksLikeSelf = (container, mine) => {
+	const ips = Object.values(container?.NetworkSettings?.Networks || {})
+		.map((n) => n?.IPAddress)
+		.filter(Boolean);
+	if (!ips.length) {
+		return true;
+	}
+	const set = new Set(mine);
+	return ips.some((ip) => set.has(ip));
+};
+
+/**
  * Reads the hints from npm.* labels. No other label ever leaves this module.
  *
  * @param   {object} labels
@@ -226,7 +256,7 @@ const containersToCandidates = (containers, { networks, selfId }) => {
 			continue;
 		}
 
-		const names = (Array.isArray(container.Names) ? container.Names : []).map(safeName).filter(Boolean);
+		const names = usableNames(container.Names);
 		if (!names.length) {
 			continue;
 		}
@@ -273,7 +303,7 @@ const containersToCandidates = (containers, { networks, selfId }) => {
 		items.push({ ...base, host: names[0], label: `${names[0]} (container)` });
 
 		const service = `${labels["com.docker.compose.service"] ?? ""}`.trim();
-		if (service && service !== names[0] && /^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(service)) {
+		if (service && service !== names[0] && /^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(service) && isValidHost(service)) {
 			items.push({ ...base, host: service, label: `${service} (compose service of ${names[0]})` });
 		}
 	}
@@ -322,9 +352,15 @@ const discoverDocker = async (opts = {}) => {
 		}
 	};
 
-	// 1. Who am I?
+	// 1. Who am I? The hostname is usually the short container id, but users can set it to anything
+	// (even another container's name), so a hostname match must also share one of our addresses.
+	const mine = ownAddresses(opts.interfaces);
 	let self = await inspect(opts.hostname ?? os.hostname());
+	if (self && !looksLikeSelf(self, mine)) {
+		self = null;
+	}
 	if (!self) {
+		// 2. The container id from our own mount table
 		let mountinfo = "";
 		try {
 			mountinfo = opts.readMountinfo ? opts.readMountinfo() : fs.readFileSync("/proc/self/mountinfo", "utf8");
@@ -339,10 +375,10 @@ const discoverDocker = async (opts = {}) => {
 
 	if (!self) {
 		// 3. Fallback: match our own IPs against the running containers
-		const mine = new Set(ownAddresses(opts.interfaces));
+		const mineSet = new Set(mine);
 		const all = await client.get("/containers/json");
 		const match = (Array.isArray(all) ? all : []).find((c) =>
-			Object.values(c?.NetworkSettings?.Networks || {}).some((n) => n?.IPAddress && mine.has(n.IPAddress)),
+			Object.values(c?.NetworkSettings?.Networks || {}).some((n) => n?.IPAddress && mineSet.has(n.IPAddress)),
 		);
 		if (match) {
 			selfId = match.Id || null;
@@ -404,8 +440,10 @@ export {
 	describeDockerError,
 	discoverDocker,
 	isAllowedPath,
+	looksLikeSelf,
 	ownAddresses,
 	parseDockerHost,
 	parseMountinfoContainerId,
 	parseNpmLabels,
+	usableNames,
 };

@@ -11,15 +11,19 @@ import {
 	describeDockerError,
 	discoverDocker,
 	isAllowedPath,
+	looksLikeSelf,
 	parseDockerHost,
 	parseMountinfoContainerId,
 	parseNpmLabels,
+	usableNames,
 } from "../lib/upstream/docker.js";
 
 const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "docker");
 const selfJson = JSON.parse(fs.readFileSync(path.join(fixtures, "self.json"), "utf8"));
 const containersJson = JSON.parse(fs.readFileSync(path.join(fixtures, "containers.json"), "utf8"));
 const SELF_ID = selfJson.Id;
+// NPM's own interfaces inside its container (matches self.json)
+const SELF_INTERFACES = { eth0: [{ address: "172.18.0.2", family: "IPv4", internal: false }] };
 
 /**
  * Fake Docker Engine API serving fixture JSON. Records every request.
@@ -172,6 +176,21 @@ describe("docker: candidate parsing from fixture JSON", () => {
 		}
 	});
 
+	it("drops legacy link names and invalid hosts", () => {
+		assert.deepEqual(usableNames(["/web/db", "/db"]), ["db"]);
+		assert.deepEqual(usableNames(["/a b", "/x;y", "/"]), []);
+		const linked = containersToCandidates(
+			[{ Id: "b".repeat(64), Names: ["/web/db", "/db"], Ports: [], NetworkSettings: { Networks: {} } }],
+			{ networks: [] },
+		);
+		assert.deepEqual(
+			linked.map((i) => i.host),
+			["db"],
+		);
+		const onlyLinks = containersToCandidates([{ Id: "c".repeat(64), Names: ["/web/db"] }], { networks: [] });
+		assert.deepEqual(onlyLinks, []);
+	});
+
 	it("tolerates garbage", () => {
 		assert.deepEqual(containersToCandidates(null, { networks: [] }), []);
 		assert.deepEqual(containersToCandidates([null, 1, { Names: [] }], { networks: [] }), []);
@@ -191,7 +210,11 @@ describe("docker: client against a fake API on a unix socket", () => {
 
 	it("discovers peers via hostname lookup", async () => {
 		fake.requests.length = 0;
-		const result = await discoverDocker({ dockerHost: `unix://${socketPath}`, hostname: SELF_ID.slice(0, 12) });
+		const result = await discoverDocker({
+			dockerHost: `unix://${socketPath}`,
+			hostname: SELF_ID.slice(0, 12),
+			interfaces: SELF_INTERFACES,
+		});
 		assert.equal(result.selfId, SELF_ID);
 		assert.deepEqual(result.networks, ["npm_default", "proxy"]);
 		const hosts = result.items.map((i) => i.host).sort();
@@ -199,6 +222,23 @@ describe("docker: client against a fake API on a unix socket", () => {
 		assert.ok(fake.requests.every((r) => r.method === "GET"));
 		const listCall = fake.requests.find((r) => r.url.startsWith("/containers/json?"));
 		assert.ok(listCall, "lists containers filtered by network");
+	});
+
+	it("ignores a hostname match that shares none of our addresses", async () => {
+		// NPM's hostname was set to another container's name: the inspect succeeds but is not us
+		const result = await discoverDocker({
+			dockerHost: `unix://${socketPath}`,
+			hostname: SELF_ID.slice(0, 12),
+			readMountinfo: () => "",
+			interfaces: { eth0: [{ address: "10.9.9.9", family: "IPv4", internal: false }] },
+		}).catch((err) => err);
+		assert.equal(result.code, "ESELF");
+	});
+
+	it("verifies a hostname match against our addresses", () => {
+		assert.equal(looksLikeSelf(selfJson, ["172.20.0.2"]), true);
+		assert.equal(looksLikeSelf(selfJson, ["10.0.0.1"]), false);
+		assert.equal(looksLikeSelf({ NetworkSettings: { Networks: { host: { IPAddress: "" } } } }, []), true);
 	});
 
 	it("falls back to mountinfo when the hostname is not the container id", async () => {
@@ -288,7 +328,11 @@ describe("docker: client against a fake API over tcp", () => {
 	});
 
 	it("works over tcp://", async () => {
-		const result = await discoverDocker({ dockerHost: `tcp://127.0.0.1:${port}`, hostname: SELF_ID });
+		const result = await discoverDocker({
+			dockerHost: `tcp://127.0.0.1:${port}`,
+			hostname: SELF_ID,
+			interfaces: SELF_INTERFACES,
+		});
 		assert.equal(result.items.length, 4);
 	});
 
