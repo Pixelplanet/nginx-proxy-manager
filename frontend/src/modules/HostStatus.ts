@@ -85,7 +85,17 @@ export const getHostStatus = (
 		return { state: "disabled", nginxErr: null, problemLocations: [], unhealthyTargets: [] };
 	}
 	const problemLocations = getProblemLocations(meta);
-	const unhealthyTargets = getUnhealthyTargets(health);
+	// A location nginx couldn't resolve or had to quarantine is already listed;
+	// its failed health probe would only report the same problem a second time.
+	const unhealthyTargets = getUnhealthyTargets(health).filter(
+		(t) =>
+			typeof t.locationIndex !== "number" ||
+			!problemLocations.some(
+				(l) =>
+					l.index === t.locationIndex &&
+					(!t.path || !l.path || normaliseLocationPath(t.path) === normaliseLocationPath(l.path)),
+			),
+	);
 	if (meta?.nginxOnline === false) {
 		return { state: "error", nginxErr: meta.nginxErr || null, problemLocations, unhealthyTargets };
 	}

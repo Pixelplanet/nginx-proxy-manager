@@ -106,6 +106,53 @@ describe("HostStatusFormatter", () => {
 		expect(popover).toHaveTextContent("Connection refused");
 	});
 
+	it("doesn't list a failed health probe of a location that is already unresolved", async () => {
+		const meta: HostMeta = {
+			nginxOnline: true,
+			nginxLocations: [
+				{ index: 0, path: "/ok", status: "ok", mode: "dynamic", message: null },
+				{
+					index: 1,
+					path: "/ghost",
+					status: "unresolved",
+					mode: "dynamic",
+					message: 'Host "ghost" can\'t be resolved',
+				},
+			],
+		};
+		const health: UpstreamHostHealth = {
+			checkedAt: "2026-11-04T10:00:00Z",
+			ok: false,
+			targets: [
+				{
+					locationIndex: 1,
+					path: "/ghost",
+					host: "ghost",
+					port: 8080,
+					ok: false,
+					code: "dns_not_found",
+					message: "Host not found",
+				},
+				{
+					locationIndex: 0,
+					path: "/ok",
+					host: "api",
+					port: 81,
+					ok: false,
+					code: "tcp_refused",
+					message: "Connection refused",
+				},
+			],
+		};
+		render(<HostStatusFormatter enabled meta={meta} health={health} />);
+		fireEvent.click(screen.getByRole("button"));
+		const popover = await screen.findByTestId("host-status-popover");
+		expect(popover).toHaveTextContent("/ghost");
+		expect(popover).not.toHaveTextContent("ghost:8080 is not reachable");
+		expect(popover).toHaveTextContent("/ok: api:81 is not reachable");
+		expect(popover.querySelectorAll("li").length).toBe(2);
+	});
+
 	it("an offline host stays red even when there are also warnings", () => {
 		const { container } = render(
 			<HostStatusFormatter
