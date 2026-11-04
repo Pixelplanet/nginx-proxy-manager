@@ -211,7 +211,14 @@ from the command line inside the container:
 docker exec -it <container> /app/scripts/regenerate-config --yes
 ```
 
-Only one regeneration runs at a time, a second request gets `409 Conflict`. Each run is recorded in the audit log.
+Only one regeneration runs at a time, a second request gets `409 Conflict`. Each run is recorded in the audit log,
+also a run that failed half way (eg. nginx could not be reloaded), with the error. The list of offline hosts also
+contains hosts that the final nginx test took offline, even of host types that were not selected.
+
+The command line script runs outside the backend and does not share its lock, so prefer the UI or the API while NPM
+is running and don't save hosts while the script runs. Config files that an interrupted config test left behind as
+`*.conf.npm-aside` are only put back by the UI/API, or by the script with `--restore-aside` while the backend is
+stopped.
 
 ## X-FRAME-OPTIONS Header
 

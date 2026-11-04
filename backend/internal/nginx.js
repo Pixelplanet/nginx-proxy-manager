@@ -21,7 +21,7 @@ import {
 	sentence,
 } from "../lib/nginx-errors.js";
 import { createLock } from "../lib/nginx-lock.js";
-import { normaliseHostTypes, summarise as summariseRegenerate } from "../lib/nginx-regenerate.js";
+import { normaliseHostTypes, summariseFinal } from "../lib/nginx-regenerate.js";
 import {
 	CONFIG_VERSION_MARKER,
 	chooseLocationMode,
@@ -72,6 +72,9 @@ const HOST_LABELS = {
 // A group of hosts sharing a broken path (see blameUnattributed()) counts once.
 const MAX_HEAL_ITERATIONS = 10;
 const TOO_MANY_BROKEN_HOSTS = `Too many broken host configs to repair in one go (more than ${MAX_HEAL_ITERATIONS}). Regenerate all host configs (Settings > Nginx Configuration, or restart NPM), then try again.`;
+// While regenerateAll() runs (it holds the lock): the hosts healOtherHost() repaired or took offline,
+// {host_type, id}. Their state after the final reload is reported, see summariseFinal().
+let healRecorder = null;
 // Extra configure iterations on top of one per location
 const EXTRA_CONFIGURE_ITERATIONS = 10;
 // When the startup reconcile tries hosts again whose upstream names did not resolve yet
@@ -649,6 +652,9 @@ const internalNginx = {
 				);
 			},
 		});
+		if (healRecorder && row) {
+			healRecorder.push({ host_type: other.host_type, id: row.id });
+		}
 		return true;
 	},
 
@@ -1441,33 +1447,81 @@ const internalNginx = {
 	 * nginx once. Hosts that nginx rejects are taken offline, broken custom locations are quarantined as on
 	 * save. Used by POST /api/nginx/regenerate and backend/scripts/regenerate-config.
 	 *
+	 * When the final test/reload or loading the rows of a host type fails, the error is thrown with the
+	 * summary of what was done until then as `err.regenerateSummary` (hosts may have changed already).
+	 *
 	 * @param   {Object}  [opts]
-	 * @param   {Array}   [opts.hostTypes]  proxy_host, redirection_host, dead_host, stream; default all
+	 * @param   {Array}   [opts.hostTypes]     proxy_host, redirection_host, dead_host, stream; default all
+	 * @param   {Boolean} [opts.restoreAside]  put back config files an interrupted test left aside, default
+	 *                                         true; false for the CLI, it doesn't share the backend's lock
 	 * @returns {Promise<Object>} {checked, regenerated, offline, failed, warnings, duration_ms}, see lib/nginx-regenerate.js
 	 */
 	regenerateAll: (opts = {}) =>
 		withLock(async () => {
 			const started = Date.now();
-			internalNginx.restoreStaleAside();
-			const { results, loadErrors } = await internalNginx.configureEnabledHosts({
-				hostTypes: opts.hostTypes,
-				logPrefix: "Regenerate",
-			});
-			const summary = summariseRegenerate(results);
-			// Also when no host was configured: restored aside files have to be loaded
-			await internalNginx.reloadNginx();
-			if (loadErrors.length) {
-				throw new errs.InternalError(
-					`Could not load ${loadErrors.map((e) => e.hostType).join(", ")} rows: ${loadErrors[0].error.message}`,
-					loadErrors[0].error,
+			const healed = [];
+			healRecorder = healed;
+			try {
+				if (opts.restoreAside !== false) {
+					internalNginx.restoreStaleAside();
+				}
+				const { results, loadErrors } = await internalNginx.configureEnabledHosts({
+					hostTypes: opts.hostTypes,
+					logPrefix: "Regenerate",
+				});
+				let failure = null;
+				try {
+					// Also when no host was configured: restored aside files have to be loaded
+					await internalNginx.reloadNginx();
+				} catch (err) {
+					failure = err;
+				}
+				if (!failure && loadErrors.length) {
+					failure = new errs.InternalError(
+						`Could not load ${loadErrors.map((e) => e.hostType).join(", ")} rows: ${loadErrors[0].error.message}`,
+						loadErrors[0].error,
+					);
+				}
+
+				// The final test (and configuring later hosts) may have repaired or taken hosts offline
+				const summary = summariseFinal(results, await internalNginx.loadHostStates(healed));
+				summary.duration_ms = Date.now() - started;
+				logger.info(
+					`Regenerate: checked ${summary.checked} hosts, regenerated ${summary.regenerated}, offline ${summary.offline.length}, failed ${summary.failed.length}, warnings ${summary.warnings.length} (${summary.duration_ms} ms)${failure ? `, failed: ${failure.message}` : ""}`,
 				);
+				if (failure) {
+					failure.regenerateSummary = summary;
+					throw failure;
+				}
+				return summary;
+			} finally {
+				healRecorder = null;
 			}
-			summary.duration_ms = Date.now() - started;
-			logger.info(
-				`Regenerate: checked ${summary.checked} hosts, regenerated ${summary.regenerated}, offline ${summary.offline.length}, failed ${summary.failed.length}, warnings ${summary.warnings.length} (${summary.duration_ms} ms)`,
-			);
-			return summary;
 		}),
+
+	/**
+	 * @param   {Array<{host_type, id}>} hosts
+	 * @returns {Promise<Array<{hostType, row}>>} the current non-deleted rows (with meta) of these hosts, a
+	 *          host type whose rows can't be loaded is left out
+	 */
+	loadHostStates: async (hosts) => {
+		const out = [];
+		for (const hostType of normaliseHostTypes(hosts.map((h) => h.host_type))) {
+			const ids = [...new Set(hosts.filter((h) => h.host_type === hostType).map((h) => h.id))];
+			if (!ids.length) {
+				continue;
+			}
+			try {
+				const rows = await HOST_MODELS[hostType].query().where("is_deleted", 0).whereIn("id", ids);
+				for (const row of rows) {
+					out.push({ hostType, row });
+				}
+			} catch (err) {
+				logger.warn(`Could not load the state of ${hostType} rows after regenerating: ${err.message}`);
+			}
+		}
+		return out;
+	},
 
 	/**
 	 * Called once after the backend started: regenerates hosts whose config is missing, was moved aside

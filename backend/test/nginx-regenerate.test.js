@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+	auditMeta,
 	createSingleFlight,
 	HOST_TYPES,
 	hostName,
 	locationWarning,
 	normaliseHostTypes,
+	runAudited,
 	summarise,
+	summariseFinal,
 } from "../lib/nginx-regenerate.js";
 
 describe("normaliseHostTypes", () => {
@@ -120,5 +123,155 @@ describe("createSingleFlight", () => {
 			/boom/,
 		);
 		assert.equal(flight.isRunning(), false);
+	});
+});
+
+describe("summariseFinal", () => {
+	const online = { nginx_online: true, nginx_locations: [] };
+	const offline = (err) => ({ nginx_online: false, nginx_err: err });
+
+	it("is summarise() when nothing changed after the hosts were configured", () => {
+		const results = [{ hostType: "proxy_host", row: { id: 1, domain_names: ["a.test"] }, meta: online }];
+		assert.deepEqual(summariseFinal(results, []), summarise(results));
+		assert.deepEqual(summariseFinal(results), summarise(results));
+	});
+
+	it("reports a host as offline that the final test took offline after it was configured", () => {
+		const results = [
+			{ hostType: "proxy_host", row: { id: 10, domain_names: ["ten.test"] }, meta: online },
+			{ hostType: "proxy_host", row: { id: 2, domain_names: ["two.test"] }, meta: online },
+		];
+		const summary = summariseFinal(results, [
+			{ hostType: "proxy_host", row: { id: 10, domain_names: ["ten.test"], meta: offline("duplicate") } },
+		]);
+		assert.equal(summary.checked, 2);
+		assert.equal(summary.regenerated, 1);
+		assert.deepEqual(summary.offline, [{ host_type: "proxy_host", id: 10, name: "ten.test", error: "duplicate" }]);
+	});
+
+	it("drops the warning of a host that went offline and keeps hosts that were repaired online", () => {
+		const warn = { nginx_online: true, nginx_locations: [{ path: "/api", status: "quarantined", message: "bad" }] };
+		const results = [
+			{ hostType: "proxy_host", row: { id: 1, domain_names: ["a.test"] }, meta: warn },
+			{ hostType: "proxy_host", row: { id: 2, domain_names: ["b.test"] }, meta: warn },
+		];
+		const summary = summariseFinal(results, [
+			{ hostType: "proxy_host", row: { id: 1, domain_names: ["a.test"], meta: offline("broken") } },
+			// repaired by a later heal: its final locations are fine
+			{ hostType: "proxy_host", row: { id: 2, domain_names: ["b.test"], meta: online } },
+		]);
+		assert.equal(summary.regenerated, 1);
+		assert.equal(summary.offline.length, 1);
+		assert.deepEqual(summary.warnings, []);
+	});
+
+	it("moves a host whose config could not be generated to offline when its old config was taken offline", () => {
+		const results = [
+			{ hostType: "dead_host", row: { id: 3, domain_names: ["c.test"] }, error: new Error("no cert") },
+		];
+		const summary = summariseFinal(results, [
+			{ hostType: "dead_host", row: { id: 3, domain_names: ["c.test"], meta: offline("old file broken") } },
+		]);
+		assert.deepEqual(summary.failed, []);
+		assert.deepEqual(summary.offline, [
+			{ host_type: "dead_host", id: 3, name: "c.test", error: "old file broken" },
+		]);
+	});
+
+	it("keeps a failed host failed when it is still online", () => {
+		const results = [
+			{ hostType: "dead_host", row: { id: 3, domain_names: ["c.test"] }, error: new Error("no cert") },
+		];
+		const summary = summariseFinal(results, [{ hostType: "dead_host", row: { id: 3, meta: online } }]);
+		assert.equal(summary.failed.length, 1);
+		assert.equal(summary.offline.length, 0);
+	});
+
+	it("adds hosts outside the selection that are offline now, without counting them as checked", () => {
+		const results = [{ hostType: "proxy_host", row: { id: 1, domain_names: ["a.test"] }, meta: online }];
+		const summary = summariseFinal(results, [
+			{ hostType: "stream", row: { id: 4, incoming_port: 2222, meta: offline("bind failed") } },
+			{ hostType: "stream", row: { id: 4, incoming_port: 2222, meta: offline("bind failed") } },
+			{ hostType: "dead_host", row: { id: 5, domain_names: ["d.test"], meta: online } },
+		]);
+		assert.equal(summary.checked, 1);
+		assert.equal(summary.regenerated, 1);
+		assert.deepEqual(summary.offline, [{ host_type: "stream", id: 4, name: "2222", error: "bind failed" }]);
+	});
+});
+
+describe("auditMeta", () => {
+	it("counts the summary", () => {
+		assert.deepEqual(
+			auditMeta(["stream"], {
+				checked: 3,
+				regenerated: 1,
+				offline: [{}],
+				failed: [{}],
+				warnings: [],
+				duration_ms: 5,
+			}),
+			{ host_types: ["stream"], checked: 3, regenerated: 1, offline: 1, failed: 1, warnings: 0, duration_ms: 5 },
+		);
+	});
+
+	it("records the error, also without a summary", () => {
+		assert.deepEqual(auditMeta(undefined, null, new Error("reload failed")), {
+			host_types: null,
+			checked: null,
+			regenerated: null,
+			offline: null,
+			failed: null,
+			warnings: null,
+			duration_ms: null,
+			error: "reload failed",
+		});
+	});
+});
+
+describe("runAudited", () => {
+	const summary = { checked: 2, regenerated: 2, offline: [], failed: [], warnings: [], duration_ms: 1 };
+
+	it("audits a successful run and returns its summary", async () => {
+		const audits = [];
+		const result = await runAudited({ run: async () => summary, audit: async (m) => audits.push(m) });
+		assert.equal(result, summary);
+		assert.equal(audits.length, 1);
+		assert.equal(audits[0].checked, 2);
+		assert.equal(audits[0].error, undefined);
+	});
+
+	it("audits a run that failed half way with its partial summary and the error, then rethrows", async () => {
+		const audits = [];
+		const failure = Object.assign(new Error("Too many broken host configs"), {
+			regenerateSummary: Object.assign({}, summary, { regenerated: 1, offline: [{ id: 1 }] }),
+		});
+		await assert.rejects(
+			runAudited({
+				hostTypes: ["proxy_host"],
+				run: async () => {
+					throw failure;
+				},
+				audit: async (m) => audits.push(m),
+			}),
+			(err) => err === failure,
+		);
+		assert.equal(audits.length, 1);
+		assert.equal(audits[0].error, "Too many broken host configs");
+		assert.equal(audits[0].offline, 1);
+		assert.deepEqual(audits[0].host_types, ["proxy_host"]);
+	});
+
+	it("does not fail the run when the audit write fails", async () => {
+		const auditErrors = [];
+		const result = await runAudited({
+			run: async () => summary,
+			audit: async () => {
+				throw new Error("db down");
+			},
+			onAuditError: (err) => auditErrors.push(err.message),
+		});
+		assert.equal(result, summary);
+		assert.deepEqual(auditErrors, ["db down"]);
 	});
 });

@@ -18,7 +18,7 @@
 		},
 		"offline": {
 			"type": "array",
-			"description": "Hosts nginx rejected, they are offline now",
+			"description": "Hosts nginx rejected, they are offline now. Also lists hosts the final nginx test took offline that were not checked (eg. of a host type that was not selected)",
 			"example": [
 				{
 					"host_type": "proxy_host",

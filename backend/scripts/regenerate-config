@@ -11,10 +11,16 @@ import streamModel from "../models/stream.js";
 const args = process.argv.slice(2);
 const UNATTENDED = args.includes("-y") || args.includes("--yes");
 const DRY_RUN = args.includes("--dry-run");
+const RESTORE_ASIDE = args.includes("--restore-aside");
 
 if (args.includes("--help") || args.includes("-h")) {
 	console.log("\nThis will iterate over all Hosts and regnerate their Nginx configs.\n")
-	console.log("Usage: ./regenerate-config [-h|--help] [-y|--yes] [--dry-run]\n");
+	console.log("Usage: ./regenerate-config [-h|--help] [-y|--yes] [--dry-run] [--restore-aside]\n");
+	console.log("This script runs outside the backend and doesn't share its lock: run it while nobody saves hosts,");
+	console.log("or use Settings > Nginx Configuration in the UI (POST /api/nginx/regenerate) instead.\n");
+	console.log("  --restore-aside  also put back config files that an interrupted config test left as");
+	console.log("                   *.conf.npm-aside. Only while the backend is stopped: it moves files aside");
+	console.log("                   for a moment while it tests a config.\n");
 	process.exit(0);
 }
 
@@ -67,7 +73,9 @@ if (DRY_RUN) {
 // The same code path as Settings > Nginx Configuration in the UI (POST /api/nginx/regenerate):
 // hosts nginx rejects are taken offline, broken custom locations are quarantined, nginx reloads once.
 try {
-	const summary = await internalNginx.regenerateAll();
+	// No --restore-aside: the backend (a different process, it doesn't share this process' lock) may be testing a
+	// config right now with another host's file moved aside, putting that file back would break its test.
+	const summary = await internalNginx.regenerateAll({ restoreAside: RESTORE_ASIDE });
 	for (const item of summary.offline) {
 		logIt(`[${item.host_type}] #${item.id} ${item.name} is offline: ${item.error}`, "warn");
 	}
@@ -84,5 +92,12 @@ try {
 	process.exit(0);
 } catch (err) {
 	logIt(`Regenerating failed: ${err.message}`, "error");
+	if (err.regenerateSummary) {
+		const summary = err.regenerateSummary;
+		logIt(
+			`Until then: checked ${summary.checked} hosts, regenerated ${summary.regenerated}, offline ${summary.offline.length}, failed ${summary.failed.length}`,
+			"warn",
+		);
+	}
 	process.exit(1);
 }

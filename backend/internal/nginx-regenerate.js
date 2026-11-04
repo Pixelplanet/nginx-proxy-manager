@@ -1,5 +1,6 @@
 import errs from "../lib/error.js";
-import { createSingleFlight } from "../lib/nginx-regenerate.js";
+import { createSingleFlight, runAudited } from "../lib/nginx-regenerate.js";
+import { nginx as logger } from "../logger.js";
 import internalAuditLog from "./audit-log.js";
 import internalNginx from "./nginx.js";
 
@@ -19,24 +20,22 @@ const internalNginxRegenerate = {
 	 */
 	regenerate: async (access, data = {}) => {
 		await access.can("nginx:regenerate");
-		return flight.run(async () => {
-			const summary = await internalNginx.regenerateAll({ hostTypes: data.host_types });
-			await internalAuditLog.add(access, {
-				action: "regenerated",
-				object_type: "nginx-config",
-				object_id: 0,
-				meta: {
-					host_types: data.host_types || null,
-					checked: summary.checked,
-					regenerated: summary.regenerated,
-					offline: summary.offline.length,
-					failed: summary.failed.length,
-					warnings: summary.warnings.length,
-					duration_ms: summary.duration_ms,
-				},
-			});
-			return summary;
-		});
+		return flight.run(() =>
+			runAudited({
+				hostTypes: data.host_types,
+				run: () => internalNginx.regenerateAll({ hostTypes: data.host_types }),
+				// Also on failure: hosts may have been rewritten or taken offline before it failed
+				audit: (meta) =>
+					internalAuditLog.add(access, {
+						action: "regenerated",
+						object_type: "nginx-config",
+						object_id: 0,
+						meta,
+					}),
+				onAuditError: (err) =>
+					logger.error(`Could not write the audit log entry of a regeneration: ${err.message}`),
+			}),
+		);
 	},
 };
 
