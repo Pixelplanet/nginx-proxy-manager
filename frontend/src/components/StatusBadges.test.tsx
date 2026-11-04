@@ -1,6 +1,7 @@
 import { cleanup, render } from "@testing-library/react";
+import type { UpstreamCheckResult } from "src/api/backend";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { UpstreamCheckHint, VariableHostHint } from "./StatusBadges";
+import { UpstreamCheckBadge, UpstreamCheckHint, VariableHostHint } from "./StatusBadges";
 
 vi.mock("src/context", () => ({ useLocaleState: () => ({ locale: "en" }) }));
 
@@ -20,6 +21,24 @@ describe("UpstreamCheckHint", () => {
 		expect(hint).toHaveTextContent("Reachable (3 ms)");
 		expect(hint).toHaveTextContent("10.0.0.2");
 		expect(container.querySelector(".badge")).toBeNull();
+	});
+
+	it("shows <1 ms for a sub-millisecond answer, in the hint and the badge", () => {
+		const result: UpstreamCheckResult = {
+			host: "app",
+			port: 80,
+			ok: true,
+			code: "ok",
+			ms: 0.3,
+			message: "app:80 is reachable (<1 ms).",
+			addresses: [],
+		};
+		const { container, rerender } = render(<UpstreamCheckHint id="h" result={result} />);
+		expect(container.querySelector("#h")).toHaveTextContent("Reachable (<1 ms) – app:80 is reachable (<1 ms).");
+		rerender(<UpstreamCheckBadge id="b" result={result} />);
+		expect(container.querySelector(".badge")).toHaveTextContent("Reachable (<1 ms)");
+		rerender(<UpstreamCheckBadge id="b" result={{ ...result, ms: 2.6 }} />);
+		expect(container.querySelector(".badge")).toHaveTextContent("Reachable (3 ms)");
 	});
 
 	it("shows a checking state and nothing without a result", () => {

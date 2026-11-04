@@ -173,8 +173,11 @@ const tcpConnect = (address, port, timeoutMs = TCP_TIMEOUT_MS) =>
 
 const describeHost = (host, port) => (port ? `${host}:${port}` : host);
 
+/** Whole milliseconds, "<1 ms" below one (a container on the same host answers in a fraction of one) */
+const formatMs = (ms) => (ms < 1 ? "<1 ms" : `${Math.round(ms)} ms`);
+
 const MESSAGES = {
-	ok: (t, r) => `${describeHost(t.host, t.port)} is reachable (${r.ms} ms).`,
+	ok: (t, r) => `${describeHost(t.host, t.port)} is reachable${typeof r.ms === "number" ? ` (${formatMs(r.ms)})` : ""}.`,
 	invalid_host: (t) =>
 		t.host
 			? `"${t.host}" is not a valid host name or IP address.`
@@ -183,7 +186,7 @@ const MESSAGES = {
 		`Host "${t.host}" could not be found. Check the spelling, and that the container is running and on the same Docker network as Nginx Proxy Manager.`,
 	dns_timeout: (t) => `Looking up "${t.host}" timed out. The DNS server did not answer in time.`,
 	resolver_mismatch: (t, r) =>
-		`${describeHost(t.host, t.port)} is reachable${r.ms !== null ? ` (${r.ms} ms)` : ""}, but "${t.host}" only resolves through /etc/hosts or a resolv.conf search domain, not through nginx's DNS resolver. It works only with a static (load-time) upstream.`,
+		`${describeHost(t.host, t.port)} is reachable${typeof r.ms === "number" ? ` (${formatMs(r.ms)})` : ""}, but "${t.host}" only resolves through /etc/hosts or a resolv.conf search domain, not through nginx's DNS resolver. It works only with a static (load-time) upstream.`,
 	tcp_refused: (t) =>
 		`Connection to ${describeHost(t.host, t.port)} was refused. The host exists, but nothing is listening on port ${t.port}.`,
 	tcp_timeout: (t) =>
@@ -342,4 +345,4 @@ const checkTargets = async (targets, opts = {}) => {
 	);
 };
 
-export { checkTarget, checkTargets, MESSAGES, resolverLookup, systemLookup, targetKey, tcpConnect };
+export { checkTarget, checkTargets, formatMs, MESSAGES, resolverLookup, systemLookup, targetKey, tcpConnect };

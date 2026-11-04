@@ -55,11 +55,14 @@ export function LocationStatusBadge({ id, status, message }: LocationStatusBadge
 	);
 }
 
+/** Whole milliseconds, "<1" below one, as in the check's message */
+export const formatCheckMs = (ms: number): string => (ms < 1 ? "<1" : `${Math.round(ms)}`);
+
 /** Short translated text for a reachability check result */
 export const checkResultText = (result: UpstreamCheckResult): string => {
 	if (result.code === "ok") {
 		return typeof result.ms === "number"
-			? intl.formatMessage({ id: "upstream.check.ok-ms" }, { ms: Math.round(result.ms) })
+			? intl.formatMessage({ id: "upstream.check.ok-ms" }, { ms: formatCheckMs(result.ms) })
 			: intl.formatMessage({ id: "upstream.check.ok" });
 	}
 	if (isTranslatedCheckCode(result.code)) {

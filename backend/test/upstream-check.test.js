@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import net from "node:net";
 import { after, before, describe, it } from "node:test";
-import { checkTarget, checkTargets, resolverLookup, targetKey, tcpConnect } from "../lib/upstream/check.js";
+import { checkTarget, checkTargets, formatMs, MESSAGES, resolverLookup, targetKey, tcpConnect } from "../lib/upstream/check.js";
 
 const listen = (server) =>
 	new Promise((resolve) => {
@@ -313,5 +313,17 @@ describe("upstream check: primitives", () => {
 		const out = await resolverLookup("app", { servers: ["1.1.1.1"], ipv6: false }, { resolver });
 		assert.deepEqual(out.addresses, ["10.0.0.1"]);
 		assert.equal(asked6, false);
+	});
+});
+
+describe("upstream check: messages", () => {
+	it("shows whole milliseconds and <1 ms below one", () => {
+		assert.equal(formatMs(0), "<1 ms");
+		assert.equal(formatMs(0.4), "<1 ms");
+		assert.equal(formatMs(1), "1 ms");
+		assert.equal(formatMs(2.6), "3 ms");
+		assert.equal(MESSAGES.ok({ host: "app", port: 80 }, { ms: 0.3 }), "app:80 is reachable (<1 ms).");
+		assert.equal(MESSAGES.ok({ host: "app", port: 80 }, { ms: null }), "app:80 is reachable.");
+		assert.match(MESSAGES.resolver_mismatch({ host: "app", port: 80 }, { ms: 12.2 }), /^app:80 is reachable \(12 ms\), but/);
 	});
 });
