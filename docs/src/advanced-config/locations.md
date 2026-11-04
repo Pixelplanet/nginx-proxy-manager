@@ -194,6 +194,45 @@ The directives are read the way nginx reads them: a quote or `#` in the middle o
 start a string or a comment. The exception are `*_by_lua_block` bodies, which ngx_lua reads as Lua: a quote in a
 Lua comment there can hide the directives after the block from this check. Hosts saved earlier keep working; the check runs when a host is created or saved.
 
+## Testing a configuration before saving
+
+Every host dialog (proxy, redirection, 404 and stream) has a **Test** button next to **Save**. It checks the
+settings in the form the way a save would, without saving anything:
+
+- the same validation as a save: required fields, duplicate location paths, forbidden file directives, domain
+  names used by another host
+- nginx checks the generated configuration (`nginx -t`). Nothing is written to the database, nginx is not
+  reloaded and no other host is changed. A new host is checked under a temporary file name that is removed again.
+- the forward host and every enabled custom location (proxy hosts), or the forwarding host (TCP streams), are
+  checked for DNS and a TCP connection, like the live check next to the fields
+
+The result is shown in the dialog: **Configuration OK** with the status of each custom location and whether the
+targets are reachable, the error a save would fail with (switching to the custom location it is about), or the
+custom locations nginx would disable. When the config file of another host is broken, the test checks without it
+and tells you that saving would repair or disable that host (see [Other broken hosts](#other-broken-hosts)).
+
+In the API this is `POST /api/nginx/proxy-hosts/test` (also `redirection-hosts`, `dead-hosts` and `streams`) with
+the same body as creating a host. Add `id` to test changes to an existing host: like an update, the body is merged
+over the stored host. A configuration nginx rejects is not an error here, the answer is `200` with `ok: false`:
+
+```json
+{
+  "ok": false,
+  "nginx_online": false,
+  "nginx_err": "Advanced configuration: unknown directive \"proxy_passs\" (line 3).",
+  "nginx_details": { "kind": "nginx_config", "scope": "host", "line": 31, "hint": "..." },
+  "nginx_locations": [],
+  "upstreams": [],
+  "warnings": []
+}
+```
+
+`ok` is `true` when nginx accepts the configuration as entered: the host would be online and no custom location
+would be quarantined. Unresolved locations and unreachable targets don't fail the test, they are listed in
+`nginx_locations` and `upstreams` (same fields as `POST /api/upstreams/check`, plus `location_index` and `path`).
+An invalid body still answers `400`. Testing needs the permission to create hosts of that type, or to edit them
+when `id` is given, and is limited to 30 tests per minute per user.
+
 ## Status in the API
 
 Every host type (proxy, redirection, 404 and stream) has these server-owned keys in `meta`. NPM ignores them in
