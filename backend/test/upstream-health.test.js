@@ -132,3 +132,42 @@ describe("health: monitor", () => {
 		assert.equal(monitor.timer, null);
 	});
 });
+
+describe("health: invalid stored ports", () => {
+	it("skips targets whose port is not 1-65535", () => {
+		const out = buildHealthTargets({
+			proxyHosts: [
+				{
+					id: 1,
+					owner_user_id: 1,
+					enabled: true,
+					forward_host: "app",
+					forward_port: "x",
+					locations: [
+						{ path: "/a", forward_host: "a", forward_port: "x" },
+						{ path: "/b", forward_host: "b", forward_port: 70000 },
+						{ path: "/c", forward_host: "c", forward_port: "8080" },
+					],
+				},
+			],
+			streams: [
+				{
+					id: 2,
+					owner_user_id: 1,
+					enabled: true,
+					tcp_forwarding: true,
+					forwarding_host: "s",
+					forwarding_port: "1.5",
+				},
+			],
+		});
+		assert.equal(out.length, 1);
+		assert.deepEqual(
+			out[0].targets.map((t) => [t.host, t.port]),
+			[["c", 8080]],
+		);
+		for (const target of out[0].targets) {
+			assert.ok(Number.isInteger(target.port));
+		}
+	});
+});

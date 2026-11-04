@@ -8,6 +8,19 @@ const DEFAULT_CONCURRENCY = 8;
 const FIRST_RUN_DELAY_MS = 15000;
 
 /**
+ * @param   {*} value
+ * @returns {number|null}  a TCP port, or null when the stored value is not one
+ */
+const toPort = (value) => {
+	const raw = `${value ?? ""}`.trim();
+	if (!/^\d{1,5}$/.test(raw)) {
+		return null;
+	}
+	const port = Number.parseInt(raw, 10);
+	return port >= 1 && port <= 65535 ? port : null;
+};
+
+/**
  * Turns host rows into the list of targets to probe.
  *
  * @param   {object} rows
@@ -24,22 +37,24 @@ const buildHealthTargets = ({ proxyHosts = [], streams = [] } = {}) => {
 		}
 		const targets = [];
 		const { host } = splitHostPath(row.forward_host);
-		if (host && row.forward_port) {
-			targets.push({ location_index: null, host, port: Number(row.forward_port), scheme: row.forward_scheme });
+		const port = toPort(row.forward_port);
+		if (host && port) {
+			targets.push({ location_index: null, host, port, scheme: row.forward_scheme });
 		}
 		(Array.isArray(row.locations) ? row.locations : []).forEach((location, index) => {
 			if (!location || location.enabled === false || !location.forward_host || !location.forward_port) {
 				return;
 			}
 			const split = splitHostPath(location.forward_host);
-			if (!split.host) {
+			const locationPort = toPort(location.forward_port);
+			if (!split.host || !locationPort) {
 				return;
 			}
 			targets.push({
 				location_index: index,
 				path: `${location.path ?? ""}`.trim(),
 				host: split.host,
-				port: Number(location.forward_port),
+				port: locationPort,
 				scheme: location.forward_scheme,
 			});
 		});
@@ -54,11 +69,15 @@ const buildHealthTargets = ({ proxyHosts = [], streams = [] } = {}) => {
 			continue;
 		}
 		const { host } = splitHostPath(row.forwarding_host);
+		const port = toPort(row.forwarding_port);
+		if (!host || !port) {
+			continue;
+		}
 		out.push({
 			type: "stream",
 			id: row.id,
 			owner_user_id: row.owner_user_id,
-			targets: [{ location_index: null, host, port: Number(row.forwarding_port), scheme: null }],
+			targets: [{ location_index: null, host, port, scheme: null }],
 		});
 	}
 
