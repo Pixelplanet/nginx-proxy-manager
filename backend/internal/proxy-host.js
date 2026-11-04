@@ -63,8 +63,12 @@ const internalProxyHost = {
 			.then((row) => {
 				createdId = row.id;
 				if (createCertificate) {
-					return internalCertificate
-						.createQuickCertificate(access, thisData)
+					// Check that nginx accepts the host before a certificate is requested: when the host is
+					// rejected the create is rolled back, and a certificate issued for it would be left behind
+					// (and renewed forever). The SSL part is checked again when the certificate is added.
+					return internalNginx
+						.configure(proxyHostModel, "proxy_host", row, { dryRun: true })
+						.then(() => internalCertificate.createQuickCertificate(access, thisData))
 						.then((cert) => {
 							// update host with cert id
 							return internalProxyHost.update(access, {
@@ -342,8 +346,12 @@ const internalProxyHost = {
 			try {
 				await internalNginx.configure(proxyHostModel, "proxy_host", row);
 			} catch (err) {
-				// The host could not be activated, keep it disabled
-				await proxyHostModel.query().where("id", row.id).patch({ enabled: 0 });
+				// nginx rejected the host and kept the previous config, keep it disabled. Any other failure
+				// (eg. only the reload failed) leaves the new config file in place: then it stays enabled,
+				// otherwise the next reload activates a host that the UI shows as disabled.
+				if (internalNginx.isHostLevelError(err)) {
+					await proxyHostModel.query().where("id", row.id).patch({ enabled: 0 });
+				}
 				throw err;
 			}
 

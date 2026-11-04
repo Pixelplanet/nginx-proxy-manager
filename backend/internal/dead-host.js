@@ -60,6 +60,10 @@ const internalDeadHost = {
 		let freshRow;
 		try {
 			if (createCertificate) {
+				// Check that nginx accepts the host before a certificate is requested: when the host is
+				// rejected the create is rolled back, and a certificate issued for it would be left behind
+				// (and renewed forever). The SSL part is checked again when the certificate is added.
+				await internalNginx.configure(deadHostModel, "dead_host", row, { dryRun: true });
 				const cert = await internalCertificate.createQuickCertificate(access, data);
 
 				// update host with cert id
@@ -283,8 +287,12 @@ const internalDeadHost = {
 		try {
 			await internalNginx.configure(deadHostModel, "dead_host", row);
 		} catch (err) {
-			// The host could not be activated, keep it disabled
-			await deadHostModel.query().where("id", row.id).patch({ enabled: 0 });
+			// nginx rejected the host and kept the previous config, keep it disabled. Any other failure
+			// (eg. only the reload failed) leaves the new config file in place: then it stays enabled,
+			// otherwise the next reload activates a host that the UI shows as disabled.
+			if (internalNginx.isHostLevelError(err)) {
+				await deadHostModel.query().where("id", row.id).patch({ enabled: 0 });
+			}
 			throw err;
 		}
 
