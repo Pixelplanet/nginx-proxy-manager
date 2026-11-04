@@ -1,6 +1,7 @@
 import _ from "lodash";
 import errs from "../lib/error.js";
 import { castJsonIfNeed } from "../lib/helpers.js";
+import { findForbiddenFileDirective } from "../lib/nginx-advanced.js";
 import { findDuplicatePath } from "../lib/nginx-locations.js";
 import { global as logger } from "../logger.js";
 import deadHostModel from "../models/dead_host.js";
@@ -108,6 +109,27 @@ const internalHost = {
 			const duplicate = findDuplicatePath(data.locations);
 			if (duplicate) {
 				throw new errs.ValidationError(`The custom location path "${duplicate}" is used more than once`);
+			}
+		}
+
+		// access_log/error_log into generated configs, include of other hosts' configs: see lib/nginx-advanced.js
+		if (typeof data.advanced_config === "string") {
+			const forbidden = findForbiddenFileDirective(data.advanced_config);
+			if (forbidden) {
+				throw new errs.ValidationError(`Advanced configuration: ${forbidden.reason}.`);
+			}
+		}
+		if (Array.isArray(data.locations)) {
+			for (const location of data.locations) {
+				const forbidden =
+					location && typeof location.advanced_config === "string"
+						? findForbiddenFileDirective(location.advanced_config)
+						: null;
+				if (forbidden) {
+					throw new errs.ValidationError(
+						`Custom location "${location.path || ""}" advanced configuration: ${forbidden.reason}.`,
+					);
+				}
 			}
 		}
 
