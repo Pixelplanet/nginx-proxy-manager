@@ -21,6 +21,7 @@ import fs from "node:fs";
 import net from "node:net";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { scanNginxConfig } from "./nginx-tokenize.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -164,60 +165,8 @@ const prepareLocation = (location) => {
  * @returns {boolean}
  */
 const bracesBalanced = (text) => {
-	const str = `${text || ""}`;
-	let depth = 0;
-	let quote = null;
-	let tokenStart = true;
-	for (let i = 0; i < str.length; i++) {
-		const ch = str[i];
-		if (quote) {
-			if (ch === "\\") {
-				i++;
-			} else if (ch === quote) {
-				quote = null;
-				tokenStart = false;
-			}
-			continue;
-		}
-		if (/\s/.test(ch) || ch === ";") {
-			tokenStart = true;
-			continue;
-		}
-		if (ch === "\\") {
-			i++;
-			tokenStart = false;
-			continue;
-		}
-		if (ch === "{") {
-			if (!tokenStart && str[i - 1] === "$") {
-				// ${var}
-				continue;
-			}
-			depth++;
-			tokenStart = true;
-			continue;
-		}
-		if (!tokenStart) {
-			continue;
-		}
-		if (ch === "#") {
-			const eol = str.indexOf("\n", i);
-			if (eol === -1) {
-				break;
-			}
-			i = eol;
-		} else if (ch === '"' || ch === "'") {
-			quote = ch;
-		} else if (ch === "}") {
-			depth--;
-			if (depth < 0) {
-				return false;
-			}
-		} else {
-			tokenStart = false;
-		}
-	}
-	return depth === 0 && quote === null;
+	const scan = scanNginxConfig(text);
+	return scan.balanced && !scan.unterminated;
 };
 
 /**

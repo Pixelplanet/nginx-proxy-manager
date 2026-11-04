@@ -3,6 +3,17 @@ import { describe, it } from "node:test";
 import { findForbiddenFileDirective, tokenize } from "../lib/nginx-advanced.js";
 
 describe("tokenize", () => {
+	it("reads quotes, comments and braces like nginx", () => {
+		assert.deepEqual(tokenize('add_header X a"b; return 301 /#/x; return 200 x}; set $a $' + '{h}y; a \\"b c;'), [
+			["add_header", "X", 'a"b'],
+			["return", "301", "/#/x"],
+			["return", "200", "x}"],
+			["set", "$a", "$" + "{h}y"],
+			["a", '"b', "c"],
+		]);
+		assert.deepEqual(tokenize("a 'x\\'y' \"q\\\\\" \\d;"), [["a", "x'y", "q\\", "\\d"]]);
+	});
+
 	it("splits statements, handles quotes and comments", () => {
 		assert.deepEqual(tokenize('access_log "/a b" main; # error_log /x;\nlocation /p { include x; }'), [
 			["access_log", "/a b", "main"],
@@ -18,7 +29,36 @@ describe("findForbiddenFileDirective", () => {
 		"access_log /data/nginx/custom/http.conf combined;",
 		'error_log "/etc/nginx/conf.d/x.conf" warn;',
 		"access_log /data/logs/../nginx/proxy_host/2.conf;",
-		"access_log logs/x.log;",
+		// nginx reads a quote only at the start of a token: here a"b and c"d are plain words
+		'add_header X-A a"b; access_log /data/nginx/proxy_host/1.conf; add_header X-B c"d;',
+		"return 301 /#/x; access_log /data/nginx/stream/1.conf;",
+		"add_header X-A don't; include /data/nginx/proxy_host/1.conf;",
+		// glob(3) patterns that match generated configs
+		"include /data/nginx/proxy_hos[t]/1.conf;",
+		"include /data/nginx/*/1.conf;",
+		"include /data/nginx/[a-z]*_host/*.conf;",
+		"include /data/nginx/?roxy_host/1.conf;",
+		// nginx turns \\ into \, glob(3) reads \t as t
+		"include /data/nginx/proxy_hos\\\\t/*.conf;",
+		"include ../../data/nginx/proxy_host/1.conf;",
+		// paths through /proc or /dev/fd lead anywhere
+		"access_log /proc/self/root/data/nginx/custom/http.conf;",
+		"include /proc/self/root/data/nginx/proxy_host/1.conf;",
+		"access_log /proc/1/cwd/x.log;",
+		"error_log /dev/fd/5/x;",
+		// config files nginx reads
+		"access_log /data/nginx/custom/http.conf;",
+		"access_log /data/nginx/temp/x.log;",
+		"access_log /data/nginx/proxy_host/5.log;",
+		"access_log /etc/nginx/mime.types;",
+		"access_log /etc/nginx/conf.d/include/x.log;",
+		"access_log ../conf.d/x.log;",
+		"access_log ../nginx.conf;",
+		// the fixed part before a variable can still reach them
+		"access_log /data/nginx/$x;",
+		"access_log /data/nginx/proxy_$x.log;",
+		"access_log /data/nginx/custom/$host.conf;",
+		"access_log ../conf.d/$host.log;",
 		"location /x {\n  error_log /etc/nginx/nginx.conf;\n}",
 		"include /data/nginx/proxy_host/2.conf;",
 		"include /data/nginx/stream/*.conf;",
@@ -51,6 +91,20 @@ describe("findForbiddenFileDirective", () => {
 		"# access_log /data/nginx/proxy_host/5.conf;",
 		'add_header X-Path "access_log /data/nginx/proxy_host/5.conf";',
 		"proxy_pass http://backend;",
+		// relative log paths resolve below the nginx prefix /etc/nginx/nginx/
+		"access_log logs/custom.log;",
+		"error_log logs/err.log;",
+		"access_log logs/$host.log;",
+		// logs next to the user's own snippets
+		"access_log /data/nginx/custom/custom_access.log;",
+		"access_log /data/nginx/custom/$host.log;",
+		"access_log /data/logs/$host.log;",
+		"include /data/nginx/custom/*.conf;",
+		"include /snippets/*.conf;",
+		"include conf.d/include/*.conf;",
+		"include conf.d/include/assets.conf;",
+		"error_log /dev/stderr;",
+		'add_header X-A a"b; access_log /data/logs/x.log;',
 	];
 	for (const text of allowed) {
 		it(`allows ${text || "(empty)"}`, () => {

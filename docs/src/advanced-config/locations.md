@@ -153,17 +153,29 @@ Save the affected host again once the cause is fixed.
 
 ### File directives in advanced configuration
 
-The advanced configuration of a host or custom location can't write into or pull in configuration files NPM
-generates. These are rejected with `400` (a validation error naming the directive):
+Advanced configuration is trusted nginx configuration. Whoever may edit a host's advanced configuration can do
+anything nginx and its modules can (Lua, `proxy_store`, a log path held in a variable, ...), so only give that
+permission to people you trust with the whole proxy. NPM checks a few file directives to catch accidental and
+obvious damage to other hosts. **This check is not a security boundary.**
 
-- `access_log` / `error_log` with a path in `/data/nginx/` or `/etc/nginx/` (a relative path counts, nginx resolves
-  it in `/etc/nginx/`). Write logs to `/data/logs/` instead. `off`, `stderr`, `syslog:`, `/dev/stdout` and paths
-  starting with a variable are allowed.
-- `include` of a file in `/data/nginx/proxy_host/`, `redirection_host/`, `dead_host/`, `stream/` or `default_host/`.
-  Put shared snippets in `/data/nginx/custom/` (or any other directory) and include them from there.
+These are rejected with `400` (a validation error naming the directive):
 
-`root`, `alias` and `include` of your own snippets are not affected. Hosts saved earlier keep working; the check runs
-when a host is created or saved.
+- `access_log` / `error_log` writing into a configuration file nginx reads: any file in `/data/nginx/proxy_host/`,
+  `redirection_host/`, `dead_host/`, `stream/`, `default_host/` or `temp/`, any `.conf` file elsewhere in
+  `/data/nginx/` (for example `/data/nginx/custom/http.conf`), anything in `/etc/nginx/conf.d/`, and `.conf`,
+  `.types` or `*_params` files in `/etc/nginx/`.
+- `include` of a file in one of the generated directories above, also through a wildcard
+  (`/data/nginx/*/1.conf`, `/data/nginx/proxy_hos[t]/1.conf`).
+- For both: paths through `/proc/` or `/dev/fd/` (for example `/proc/self/root/...`), and in `access_log` a path
+  whose fixed part before a variable could still lead to one of the files above (`/data/nginx/$name`).
+
+Allowed are, for example: logs in `/data/logs/` or `/data/nginx/custom/*.log`, relative log paths such as
+`logs/custom.log` (nginx resolves them in `/etc/nginx/nginx/`), `off`, `stderr`, `syslog:`, `/dev/stdout`, a log
+path that starts with a variable, `root`, `alias` and `include` of your own snippets (`/data/nginx/custom/*.conf`,
+`/snippets/*.conf`, `conf.d/include/*.conf`).
+
+The directives are read the way nginx reads them: a quote or `#` in the middle of a word (`a"b`, `/#/x`) does not
+start a string or a comment. Hosts saved earlier keep working; the check runs when a host is created or saved.
 
 ## Status in the API
 
