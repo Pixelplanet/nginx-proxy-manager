@@ -4,8 +4,14 @@ import type { UpstreamCandidate, UpstreamCandidates } from "src/api/backend";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { allowedPrefill, candidatePrefill, groupCandidates, UpstreamField } from "./UpstreamField";
 
+const hookState = vi.hoisted(() => ({ data: undefined as unknown, refresh: () => {} }));
 vi.mock("src/hooks", () => ({
-	useUpstreamCandidates: () => ({ data: undefined, isFetching: false, refresh: vi.fn(), isRefreshing: false }),
+	useUpstreamCandidates: () => ({
+		data: hookState.data,
+		isFetching: false,
+		refresh: hookState.refresh,
+		isRefreshing: false,
+	}),
 }));
 
 const candidate = (c: Partial<UpstreamCandidate>): UpstreamCandidate => ({
@@ -53,7 +59,7 @@ function Harness({
 	onSelectCandidate,
 	initial = "",
 }: {
-	candidates: UpstreamCandidates;
+	candidates?: UpstreamCandidates;
 	onChange?: (v: string) => void;
 	onSelectCandidate?: (...args: any[]) => void;
 	initial?: string;
@@ -71,6 +77,7 @@ function Harness({
 				}}
 				onSelectCandidate={onSelectCandidate}
 			/>
+			<input id="port" aria-label="Forward Port" />
 			<output data-testid="value">{value}</output>
 		</>
 	);
@@ -289,6 +296,54 @@ describe("UpstreamField keyboard", () => {
 		expect(onSelect).not.toHaveBeenCalled();
 	});
 
+	const homeData: UpstreamCandidates = {
+		...prefixData,
+		items: [
+			candidate({ host: "myhost-db", label: "myhost-db", source: "docker", ports: [5432] }),
+			candidate({ host: "myhost-web", label: "myhost-web", source: "docker", ports: [80] }),
+		],
+	};
+
+	for (const key of ["Home", "End"]) {
+		it(`${key} with the menu open moves the caret and doesn't highlight an option`, () => {
+			const onSelect = vi.fn();
+			render(<Harness candidates={homeData} onSelectCandidate={onSelect} />);
+			const input = typeInto("myhost");
+			input.setSelectionRange(3, 3);
+			expect(document.querySelector(".react-select__menu")).not.toBeNull();
+			fireEvent.keyDown(input, { key, code: key });
+			expect(focusedOption()).toBeNull();
+			const at = key === "Home" ? 0 : 6;
+			expect([input.selectionStart, input.selectionEnd]).toEqual([at, at]);
+			fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+			expect(screen.getByTestId("value")).toHaveTextContent(/^myhost$/);
+			expect(input.value).toBe("myhost");
+			expect(onSelect).not.toHaveBeenCalled();
+		});
+	}
+
+	it("Shift+Home / Shift+End select from the caret", () => {
+		render(<Harness candidates={homeData} />);
+		const input = typeInto("myhost");
+		input.setSelectionRange(2, 2);
+		fireEvent.keyDown(input, { key: "Home", code: "Home", shiftKey: true });
+		expect([input.selectionStart, input.selectionEnd, input.selectionDirection]).toEqual([0, 2, "backward"]);
+		fireEvent.keyDown(input, { key: "End", code: "End", shiftKey: true });
+		expect([input.selectionStart, input.selectionEnd, input.selectionDirection]).toEqual([2, 6, "forward"]);
+		expect(focusedOption()).toBeNull();
+	});
+
+	it("Home after navigating keeps the highlighted option", () => {
+		const onSelect = vi.fn();
+		render(<Harness candidates={homeData} onSelectCandidate={onSelect} />);
+		const input = typeInto("myhost");
+		fireEvent.keyDown(input, { key: "ArrowDown", code: "ArrowDown" });
+		fireEvent.keyDown(input, { key: "ArrowDown", code: "ArrowDown" });
+		const highlighted = focusedOption()?.textContent;
+		fireEvent.keyDown(input, { key: "Home", code: "Home" });
+		expect(focusedOption()?.textContent).toBe(highlighted);
+	});
+
 	it("a click on an option still picks it", () => {
 		const onSelect = vi.fn();
 		render(<Harness candidates={prefixData} onSelectCandidate={onSelect} />);
@@ -345,5 +400,95 @@ describe("allowedPrefill", () => {
 
 	it("returns nothing for an empty prefill", () => {
 		expect(allowedPrefill({}, { port: "" }, {})).toEqual({});
+	});
+});
+
+// What a browser does on Tab when the keydown isn't prevented: focus the next
+// element in tab order (as it is after React has handled the keydown).
+const pressTab = (from: HTMLElement) => {
+	const notPrevented = fireEvent.keyDown(from, { key: "Tab", code: "Tab" });
+	if (!notPrevented) return;
+	const tabbable = Array.from(
+		document.querySelectorAll<HTMLElement>("input, button, select, textarea, a[href], [tabindex]"),
+	).filter((el) => el.tabIndex >= 0 && !(el as HTMLButtonElement).disabled);
+	const next = tabbable[tabbable.indexOf(from) + 1];
+	from.blur();
+	fireEvent.blur(from);
+	if (next) {
+		next.focus();
+		fireEvent.focus(next);
+	}
+};
+
+describe("UpstreamField selection guard", () => {
+	afterEach(() => {
+		cleanup();
+		hookState.data = undefined;
+	});
+
+	it("Space in an empty field with the menu open doesn't pick the focused option", () => {
+		const onSelect = vi.fn();
+		render(<Harness candidates={prefixData} onSelectCandidate={onSelect} />);
+		clickControl();
+		expect(document.querySelector(".react-select__menu")).not.toBeNull();
+		fireEvent.keyDown(hostInput(), { key: " ", code: "Space" });
+		expect(screen.getByTestId("value")).toHaveTextContent(/^$/);
+		expect(hostInput().value).toBe("");
+		expect(onSelect).not.toHaveBeenCalled();
+	});
+
+	it("Space doesn't pick an option even after navigating with the arrows", () => {
+		const onSelect = vi.fn();
+		render(<Harness candidates={prefixData} onSelectCandidate={onSelect} />);
+		const input = openMenu();
+		expect(focusedOption()).toHaveTextContent("app-db");
+		fireEvent.keyDown(input, { key: " ", code: "Space" });
+		expect(screen.getByTestId("value")).toHaveTextContent(/^$/);
+		expect(onSelect).not.toHaveBeenCalled();
+	});
+
+	it("Space with a saved value and the menu open keeps the value", () => {
+		const onSelect = vi.fn();
+		render(<Harness candidates={prefixData} initial="web" onSelectCandidate={onSelect} />);
+		clickControl();
+		// clear the text, menu stays open, then Space
+		fireEvent.change(hostInput(), { target: { value: "" } });
+		fireEvent.keyDown(hostInput(), { key: " ", code: "Space" });
+		expect(screen.getByTestId("value")).toHaveTextContent(/^$/);
+		expect(onSelect).not.toHaveBeenCalled();
+	});
+
+	it("Tab with the menu open closes it and moves on to the next field, keeping the value", () => {
+		hookState.data = prefixData;
+		render(<Harness initial="my-host" />);
+		clickControl();
+		expect(document.querySelector(".react-select__menu")).not.toBeNull();
+		// the refresh button in the menu footer is shown but isn't a Tab stop
+		const refresh = screen.getByLabelText("Refresh suggestions");
+		expect(refresh.tabIndex).toBe(-1);
+		pressTab(hostInput());
+		expect(document.querySelector(".react-select__menu")).toBeNull();
+		expect(document.activeElement).toBe(document.getElementById("port"));
+		expect(screen.getByTestId("value")).toHaveTextContent(/^my-host$/);
+		expect(hostInput().value).toBe("my-host");
+	});
+
+	it("Tab after typing with the menu open moves on and keeps the typed text", () => {
+		hookState.data = prefixData;
+		const onSelect = vi.fn();
+		render(<Harness onSelectCandidate={onSelect} />);
+		const input = typeInto("app");
+		expect(document.querySelector(".react-select__menu")).not.toBeNull();
+		pressTab(input);
+		expect(document.activeElement).toBe(document.getElementById("port"));
+		expect(screen.getByTestId("value")).toHaveTextContent(/^app$/);
+		expect(onSelect).not.toHaveBeenCalled();
+	});
+
+	it("a click on the 'use value' option still creates it", () => {
+		render(<Harness candidates={prefixData} />);
+		typeInto("new-host ");
+		fireEvent.click(screen.getByText(/new-host/, { selector: ".react-select__option" }));
+		expect(screen.getByTestId("value")).toHaveTextContent(/^new-host$/);
 	});
 });

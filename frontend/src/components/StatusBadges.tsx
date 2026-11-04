@@ -155,10 +155,10 @@ export function VariableHostBadge({ id }: { id: string }) {
 }
 
 /** `VariableHostBadge` as a hint line below the field */
-export function VariableHostHint({ id }: { id: string }) {
+export function VariableHostHint({ id, tipId = "upstream.check.variable-tip" }: { id: string; tipId?: string }) {
 	return (
 		<div id={id} className="form-hint mt-1 text-secondary" data-check="variable">
-			<T id="upstream.check.variable" /> – <T id="upstream.check.variable-tip" />
+			<T id="upstream.check.variable" /> – <T id={tipId} />
 		</div>
 	);
 }

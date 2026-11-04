@@ -15,7 +15,7 @@ import { useEffect, useRef, useState } from "react";
 import type { NginxLocationStatus, ProxyLocation } from "src/api/backend";
 import { useUpstreamCheck } from "src/hooks";
 import { intl, T } from "src/locale";
-import { isVariableHost, locationDuplicateKey, normaliseLocationPath } from "src/modules/HostStatus";
+import { isVariableHost, locationDuplicateKey, locationHostPart, normaliseLocationPath } from "src/modules/HostStatus";
 import { LocationStatusBadge, UpstreamCheckBadge, VariableHostBadge } from "../StatusBadges";
 import { AccessField } from "./AccessField";
 import styles from "./LocationsFields.module.css";
@@ -44,7 +44,13 @@ export const cleanLocations = (items?: ProxyLocation[]) => (items || []).filter(
 
 // Characters that would break out of the generated nginx directive, the same
 // set the backend rejects. A host that is a single nginx variable is allowed.
+// Like the backend, the host part of `host/path` is checked on its own.
 const INVALID_HOST_CHARS = /[;{}'"`\\$#]/;
+// The path part of `host/path` goes into `proxy_pass ...<path>;`; the backend
+// quarantines a path with these. `$` is allowed, nginx variables are fine there.
+const INVALID_PATH_CHARS = /[\s;{}'"`\\#]/;
+// `${name}` is a variable too, the backend replaces it before the check above
+const BRACED_VARIABLE = /\$\{[A-Za-z0-9_]+\}/g;
 
 export const validateLocations = (items: ProxyLocation[] = []): (LocationErrors | undefined)[] => {
 	// Locations nginx would reject as duplicates, by key: index and path of each
@@ -68,13 +74,18 @@ export const validateLocations = (items: ProxyLocation[] = []): (LocationErrors 
 			errors.path = intl.formatMessage({ id: "location.error.duplicate-path" }, { path: other.path });
 		}
 
-		const host = `${item.forwardHost ?? ""}`;
-		if (!host.trim()) {
+		// The server trims the value and splits it at the first "/": `host/path`
+		const host = `${item.forwardHost ?? ""}`.trim();
+		const hostPart = locationHostPart(host);
+		const pathPart = host.slice(hostPart.length);
+		if (!hostPart) {
 			errors.forwardHost = intl.formatMessage({ id: "error.required" });
-		} else if (/\s/.test(host.trim())) {
+		} else if (/\s/.test(hostPart)) {
 			errors.forwardHost = intl.formatMessage({ id: "location.error.host-whitespace" });
-		} else if (!isVariableHost(host) && INVALID_HOST_CHARS.test(host)) {
+		} else if (!isVariableHost(hostPart) && INVALID_HOST_CHARS.test(hostPart)) {
 			errors.forwardHost = intl.formatMessage({ id: "location.error.host-invalid" });
+		} else if (INVALID_PATH_CHARS.test(pathPart.replace(BRACED_VARIABLE, "$x"))) {
+			errors.forwardHost = intl.formatMessage({ id: "location.error.path-invalid" });
 		}
 
 		const rawPort = item.forwardPort as unknown;
@@ -395,7 +406,7 @@ function LocationCard({
 	const hostError = errorFor("forwardHost");
 	const check = useUpstreamCheck(
 		{ host: item.forwardHost, port: item.forwardPort, scheme: item.forwardScheme },
-		isEnabled && wasOpened && !hostError && !isVariableHost(item.forwardHost),
+		isEnabled && wasOpened && !hostError && !isVariableHost(locationHostPart(item.forwardHost)),
 	);
 
 	const pathError = errorFor("path");
@@ -443,7 +454,7 @@ function LocationCard({
 							message={status.message}
 						/>
 					) : null}
-					{isEnabled && isVariableHost(item.forwardHost) ? (
+					{isEnabled && isVariableHost(locationHostPart(item.forwardHost)) ? (
 						<VariableHostBadge id={`location-check-${row.id}`} />
 					) : isEnabled ? (
 						<UpstreamCheckBadge

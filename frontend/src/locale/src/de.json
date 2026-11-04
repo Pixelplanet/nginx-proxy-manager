@@ -542,6 +542,9 @@
 	"location.error.host-whitespace": {
 		"defaultMessage": "Der Host darf keine Leerzeichen enthalten"
 	},
+	"location.error.path-invalid": {
+		"defaultMessage": "Ungültige Zeichen im Weiterleitungspfad (Leerzeichen, Anführungszeichen, ;, Klammern, # oder \\). nginx-Variablen wie $uri sind erlaubt."
+	},
 	"location.errors-summary": {
 		"defaultMessage": "Einige benutzerdefinierte Locations enthalten Fehler"
 	},
@@ -919,6 +922,9 @@
 	},
 	"upstream.check.variable-tip": {
 		"defaultMessage": "Wird in der erweiterten Konfiguration gesetzt und von nginx bei jeder Anfrage aufgelöst, daher wird sie hier nicht geprüft."
+	},
+	"upstream.check.variable-tip-main": {
+		"defaultMessage": "Wird von nginx bei jeder Anfrage aufgelöst, daher wird sie hier nicht geprüft. Sie braucht einen Wert, bevor die erweiterte Konfiguration dieses Hosts ausgeführt wird, zum Beispiel aus einer map in /data/nginx/custom/http.conf; ein set in der erweiterten Konfiguration kommt zu spät."
 	},
 	"upstream.docker-disabled": {
 		"defaultMessage": "Docker-Erkennung aktivieren: NPM_DOCKER_DISCOVERY=true setzen und NPM Zugriff auf die Docker-API geben (siehe Dokumentation)."
