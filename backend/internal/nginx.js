@@ -21,6 +21,7 @@ import {
 	sentence,
 } from "../lib/nginx-errors.js";
 import { createLock } from "../lib/nginx-lock.js";
+import { normaliseHostTypes, summarise as summariseRegenerate } from "../lib/nginx-regenerate.js";
 import {
 	CONFIG_VERSION_MARKER,
 	chooseLocationMode,
@@ -70,7 +71,7 @@ const HOST_LABELS = {
 // runs a nested configure (DNS lookups, several nginx -t) while holding the lock, which blocks every save.
 // A group of hosts sharing a broken path (see blameUnattributed()) counts once.
 const MAX_HEAL_ITERATIONS = 10;
-const TOO_MANY_BROKEN_HOSTS = `Too many broken host configs to repair in one go (more than ${MAX_HEAL_ITERATIONS}). Regenerate all host configs (restart NPM or run backend/scripts/regenerate-config), then try again.`;
+const TOO_MANY_BROKEN_HOSTS = `Too many broken host configs to repair in one go (more than ${MAX_HEAL_ITERATIONS}). Regenerate all host configs (Settings > Nginx Configuration, or restart NPM), then try again.`;
 // Extra configure iterations on top of one per location
 const EXTRA_CONFIGURE_ITERATIONS = 10;
 // When the startup reconcile tries hosts again whose upstream names did not resolve yet
@@ -1372,6 +1373,103 @@ const internalNginx = {
 	},
 
 	/**
+	 * Configures every non-deleted, enabled host of the given types without reloading nginx. A host that nginx
+	 * rejects is taken offline, any other failure is logged and returned, nothing throws for one host.
+	 * Only call this while holding the lock.
+	 *
+	 * @param   {Object}    opts
+	 * @param   {Array}     [opts.hostTypes]     file friendly host types, default all
+	 * @param   {Object}    [opts.only]          {host_type: [ids]}, only these hosts
+	 * @param   {Function}  [opts.needsWork]     (hostType, row) => boolean, false skips the host
+	 * @param   {Object}    [opts.modeResolver]  shared DNS cache, see lib/upstream-dns.js
+	 * @param   {String}    opts.logPrefix
+	 * @returns {Promise<{results: Array<{hostType, row, meta?, error?, skipped?}>, loadErrors: Array}>}
+	 */
+	configureEnabledHosts: async (opts) => {
+		const results = [];
+		const loadErrors = [];
+		const modeResolver = opts.modeResolver || createModeResolver();
+		for (const hostType of normaliseHostTypes(opts.hostTypes)) {
+			const model = HOST_MODELS[hostType];
+			const only = opts.only ? opts.only[hostType] : null;
+			if (opts.only && !only?.length) {
+				continue;
+			}
+			let rows = [];
+			try {
+				const query = model
+					.query()
+					.where("is_deleted", 0)
+					.andWhere("enabled", 1)
+					.allowGraph(model.defaultAllowGraph)
+					.withGraphFetched(`[${model.defaultExpand.join(", ")}]`)
+					.orderBy("id");
+				if (only) {
+					query.whereIn("id", only);
+				}
+				rows = await query;
+			} catch (err) {
+				logger.error(`${opts.logPrefix}: could not load ${hostType} rows: ${err.message}`);
+				loadErrors.push({ hostType, error: err });
+				continue;
+			}
+
+			for (const row of rows) {
+				if (opts.needsWork && !opts.needsWork(hostType, row)) {
+					results.push({ hostType, row, skipped: true });
+					continue;
+				}
+				try {
+					const meta = await internalNginx.configureHost(model, hostType, row, {
+						reload: false,
+						depth: 0,
+						modeResolver,
+						offlineOnError: true,
+					});
+					results.push({ hostType, row, meta });
+				} catch (err) {
+					logger.error(`${opts.logPrefix}: ${hostLabel(hostType, row)}: ${err.message}`);
+					results.push({ hostType, row, error: err });
+				}
+			}
+		}
+		return { results, loadErrors };
+	},
+
+	/**
+	 * Rewrites the config files of every enabled host of the given types from the database, then reloads
+	 * nginx once. Hosts that nginx rejects are taken offline, broken custom locations are quarantined as on
+	 * save. Used by POST /api/nginx/regenerate and backend/scripts/regenerate-config.
+	 *
+	 * @param   {Object}  [opts]
+	 * @param   {Array}   [opts.hostTypes]  proxy_host, redirection_host, dead_host, stream; default all
+	 * @returns {Promise<Object>} {checked, regenerated, offline, failed, warnings, duration_ms}, see lib/nginx-regenerate.js
+	 */
+	regenerateAll: (opts = {}) =>
+		withLock(async () => {
+			const started = Date.now();
+			internalNginx.restoreStaleAside();
+			const { results, loadErrors } = await internalNginx.configureEnabledHosts({
+				hostTypes: opts.hostTypes,
+				logPrefix: "Regenerate",
+			});
+			const summary = summariseRegenerate(results);
+			// Also when no host was configured: restored aside files have to be loaded
+			await internalNginx.reloadNginx();
+			if (loadErrors.length) {
+				throw new errs.InternalError(
+					`Could not load ${loadErrors.map((e) => e.hostType).join(", ")} rows: ${loadErrors[0].error.message}`,
+					loadErrors[0].error,
+				);
+			}
+			summary.duration_ms = Date.now() - started;
+			logger.info(
+				`Regenerate: checked ${summary.checked} hosts, regenerated ${summary.regenerated}, offline ${summary.offline.length}, failed ${summary.failed.length}, warnings ${summary.warnings.length} (${summary.duration_ms} ms)`,
+			);
+			return summary;
+		}),
+
+	/**
 	 * Called once after the backend started: regenerates hosts whose config is missing, was moved aside
 	 * (by the prepare/55-nginx-validate.sh startup check or a failed test), or was written by an older
 	 * version (literal custom location upstreams). Never throws.
@@ -1394,63 +1492,43 @@ const internalNginx = {
 				internalNginx.restoreStaleAside();
 			}
 
-			for (const [hostType, model] of Object.entries(HOST_MODELS)) {
-				const only = opts.only ? opts.only[hostType] : null;
-				if (opts.only && !only?.length) {
-					continue;
-				}
-				let rows = [];
-				try {
-					const query = model
-						.query()
-						.where("is_deleted", 0)
-						.andWhere("enabled", 1)
-						.allowGraph(model.defaultAllowGraph)
-						.withGraphFetched(`[${model.defaultExpand.join(", ")}]`);
-					if (only) {
-						query.whereIn("id", only);
+			const { results } = await internalNginx.configureEnabledHosts({
+				only: opts.only,
+				modeResolver,
+				logPrefix: "Startup reconcile",
+				needsWork: (hostType, row) => {
+					if (opts.only) {
+						return true;
 					}
-					rows = await query;
-				} catch (err) {
-					logger.error(`Startup reconcile: could not load ${hostType} rows: ${err.message}`);
-					continue;
-				}
-
-				for (const row of rows) {
-					summary.checked++;
 					const filename = internalNginx.getConfigName(hostType, row.id);
 					const text = readFileOrNull(filename);
-					const needsWork =
-						!!only ||
+					return (
 						text === null ||
 						fs.existsSync(`${filename}.err`) ||
 						(hostType === "proxy_host" &&
 							Array.isArray(row.locations) &&
 							row.locations.length > 0 &&
-							text.indexOf(CONFIG_VERSION_MARKER) === -1);
-					if (!needsWork) {
-						continue;
-					}
-					try {
-						const meta = await internalNginx.configureHost(model, hostType, row, {
-							reload: false,
-							depth: 0,
-							modeResolver,
-							offlineOnError: true,
-						});
-						if (meta.nginx_online === false) {
-							summary.offline++;
-						} else {
-							summary.regenerated++;
-						}
-						if (mayResolveLater(meta)) {
-							summary.retry[hostType] = summary.retry[hostType] || [];
-							summary.retry[hostType].push(row.id);
-						}
-					} catch (err) {
-						summary.failed++;
-						logger.error(`Startup reconcile: ${hostLabel(hostType, row)}: ${err.message}`);
-					}
+							text.indexOf(CONFIG_VERSION_MARKER) === -1)
+					);
+				},
+			});
+			for (const { hostType, row, meta, error, skipped } of results) {
+				summary.checked++;
+				if (skipped) {
+					continue;
+				}
+				if (error) {
+					summary.failed++;
+					continue;
+				}
+				if (meta.nginx_online === false) {
+					summary.offline++;
+				} else {
+					summary.regenerated++;
+				}
+				if (mayResolveLater(meta)) {
+					summary.retry[hostType] = summary.retry[hostType] || [];
+					summary.retry[hostType].push(row.id);
 				}
 			}
 
