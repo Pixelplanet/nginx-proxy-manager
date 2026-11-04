@@ -20,6 +20,7 @@ import {
 	SSLCertificateField,
 	SSLOptionsFields,
 	UpstreamCheckHint,
+	VariableHostHint,
 	UpstreamField,
 	usePrefillGuard,
 } from "src/components";
@@ -30,6 +31,7 @@ import {
 	getErrorLocationIndex,
 	getNginxErrorDetails,
 	getProblemLocations,
+	isVariableHost,
 	hasSaveWarnings,
 	stripServerMeta,
 } from "src/modules/HostStatus";
@@ -69,6 +71,9 @@ function ForwardCheckHint() {
 		port: values.forwardPort,
 		scheme: values.forwardScheme,
 	});
+	if (isVariableHost(values.forwardHost)) {
+		return <VariableHostHint id="forwardHost-check" />;
+	}
 	return <UpstreamCheckHint id="forwardHost-check" result={result} isChecking={isChecking} />;
 }
 

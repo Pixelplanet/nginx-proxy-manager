@@ -537,7 +537,7 @@
 		"defaultMessage": "This location has errors"
 	},
 	"location.error.host-invalid": {
-		"defaultMessage": "The host contains characters that are not allowed"
+		"defaultMessage": "The host contains characters that are not allowed (quotes, ;, braces, $, # or \\). A single nginx variable such as $backend is allowed."
 	},
 	"location.error.host-whitespace": {
 		"defaultMessage": "The host must not contain spaces"
@@ -913,6 +913,12 @@
 	},
 	"upstream.check.tcp_unreachable": {
 		"defaultMessage": "Host unreachable"
+	},
+	"upstream.check.variable": {
+		"defaultMessage": "nginx variable"
+	},
+	"upstream.check.variable-tip": {
+		"defaultMessage": "Set in the advanced configuration and resolved by nginx for each request, so it isn't checked here."
 	},
 	"upstream.docker-disabled": {
 		"defaultMessage": "Enable Docker discovery: set NPM_DOCKER_DISCOVERY=true and give NPM access to the Docker API (see the documentation)."

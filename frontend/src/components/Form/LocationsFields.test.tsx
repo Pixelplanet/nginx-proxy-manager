@@ -76,6 +76,39 @@ describe("validateLocations", () => {
 		expect(validateLocations([loc({ forwardHost: " app/sub/ " })])[0]).toBeUndefined();
 	});
 
+	it("allows a forward host that is a single nginx variable", () => {
+		expect(validateLocations([loc({ forwardHost: "$backend" })])[0]).toBeUndefined();
+		expect(validateLocations([loc({ forwardHost: " $up_2 " })])[0]).toBeUndefined();
+		// anything else with a $ (or # or \) is rejected like the backend does
+		for (const host of ["$backend:80", "app$x", "$1x", "${backend}", "a#b", "a\\b"]) {
+			expect(validateLocations([loc({ forwardHost: host })])[0]?.forwardHost).toMatch(/not allowed/);
+		}
+	});
+
+	it("treats a prefix path and the same path with ^~ as duplicates", () => {
+		const errors = validateLocations([loc({ path: "/x" }), loc({ path: "^~ /x" }), loc({ path: "^~/y" })]);
+		expect(errors[0]?.path).toMatch(/already uses \^~ \/x/);
+		expect(errors[1]?.path).toMatch(/already uses \/x/);
+		expect(errors[2]).toBeUndefined();
+		// nginx strips the quotes of a quoted path
+		expect(validateLocations([loc({ path: '"/q"' }), loc({ path: "/q" })])[1]?.path).toMatch(/already uses/);
+	});
+
+	it("allows duplicate regex and named locations, which nginx accepts", () => {
+		expect(
+			validateLocations([
+				loc({ path: "~* \\.php$" }),
+				loc({ path: "~*  \\.php$" }),
+				loc({ path: "~ ^/api" }),
+				loc({ path: "~ ^/api" }),
+				loc({ path: "@fallback" }),
+				loc({ path: "@fallback" }),
+			]),
+		).toEqual([undefined, undefined, undefined, undefined, undefined, undefined]);
+		// an exact location doesn't clash with the prefix location of the same URI
+		expect(validateLocations([loc({ path: "= /x" }), loc({ path: "/x" })])).toEqual([undefined, undefined]);
+	});
+
 	it("flags duplicate paths after normalising the modifier", () => {
 		const errors = validateLocations([loc({ path: "= /x" }), loc({ path: "=/x " }), loc({ path: "/x" })]);
 		expect(errors[0]?.path).toMatch(/already uses = \/x/);
@@ -243,5 +276,17 @@ describe("LocationsFields", () => {
 			"tcp_refused",
 		);
 		expect(screen.getByTestId("location-card-0")).toHaveTextContent("Connection refused");
+	});
+
+	it("doesn't check a forward host that is an nginx variable and says so", () => {
+		checkState.result = { host: "$backend", port: 80, ok: false, code: "invalid_host", message: "bad" };
+		renderFields([loc({ path: "/a", forwardHost: "$backend" })]);
+		fireEvent.click(screen.getByText("/a"));
+		expect(checkState.calls.every((c) => !c.enabled)).toBe(true);
+		const card = screen.getByTestId("location-card-0");
+		expect(card.querySelector("[data-check]")).toHaveAttribute("data-check", "variable");
+		expect(card).toHaveTextContent("nginx variable");
+		expect(card).not.toHaveTextContent("Invalid host name");
+		expect(card.querySelector(".invalid-feedback")).toBeNull();
 	});
 });

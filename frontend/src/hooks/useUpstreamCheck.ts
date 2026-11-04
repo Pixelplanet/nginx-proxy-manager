@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { checkUpstreams, isApiError, type UpstreamCheckResult } from "src/api/backend";
+import { isVariableHost } from "src/modules/HostStatus";
 
 const DEBOUNCE_MS = 600;
 const CACHE_TTL_MS = 30 * 1000;
@@ -31,7 +32,8 @@ export interface UpstreamCheckInput {
 const normaliseTarget = ({ host, port, scheme }: UpstreamCheckInput) => {
 	const h = `${host ?? ""}`.trim();
 	const p = Number(port);
-	if (!h || !Number.isInteger(p) || p < 1 || p > 65535) {
+	// An nginx variable is only known at request time
+	if (!h || isVariableHost(h) || !Number.isInteger(p) || p < 1 || p > 65535) {
 		return null;
 	}
 	return { host: h, port: p, scheme: scheme || undefined };

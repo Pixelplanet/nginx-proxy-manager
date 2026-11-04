@@ -122,4 +122,29 @@ export const normaliseLocationPath = (path: string): string => {
 	return m[1] ? `${m[1]} ${m[2]}` : m[2];
 };
 
+/**
+ * Key under which nginx sees two locations as the same (`duplicate location`):
+ * exact locations with the same URI, or prefix locations with the same URI
+ * (`/x` and `^~ /x` are the same). Regex (`~`, `~*`) and named (`@x`) locations
+ * may repeat, nginx uses the first one, so they get no key. Mirrors the
+ * backend's findDuplicatePath.
+ */
+export const locationDuplicateKey = (path: string): string | null => {
+	const m = `${path ?? ""}`.trim().match(/^(=|\^~|~\*|~)?\s*(.*)$/s);
+	const modifier = m?.[1] || "";
+	const uri = (m?.[2] ?? "").trim();
+	if (!uri || modifier === "~" || modifier === "~*" || (!modifier && uri.startsWith("@"))) {
+		return null;
+	}
+	// nginx strips the quotes of a quoted path
+	const q = uri.match(/^(["'])(.*)\1$/s);
+	const unquoted = q ? q[2].replace(/\\(["'\\])/g, "$1") : uri;
+	return `${modifier === "=" ? "=" : "prefix"} ${unquoted}`;
+};
+
+// A forward host that is a single nginx variable, eg. `$backend` set in the
+// advanced config. nginx resolves it at request time, so it can't be checked.
+const VARIABLE_HOST = /^\$[A-Za-z_][A-Za-z0-9_]*$/;
+export const isVariableHost = (host?: string | null) => VARIABLE_HOST.test(`${host ?? ""}`.trim());
+
 export const isTranslatedCheckCode = (code?: string) => !!code && hasMessage(`upstream.check.${code}`);
