@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildHealthTargets, HealthMonitor } from "../lib/upstream/health.js";
+import { buildHealthTargets, HealthMonitor, visibilityFilter } from "../lib/upstream/health.js";
 
 const rows = {
 	proxyHosts: [
@@ -123,6 +123,23 @@ describe("health: monitor", () => {
 		const own = monitor.snapshot({ proxy_host: (owner) => owner === 1, stream: null });
 		assert.deepEqual(Object.keys(own.hosts.proxy_host), ["12"]);
 		assert.deepEqual(own.hosts.stream, {});
+	});
+
+	it("filters by the visibility of the list endpoints, with explicitly shared proxy hosts", async () => {
+		const monitor = new HealthMonitor({
+			getInterval: () => 60,
+			loadRows: async () => rows,
+			check: fakeCheck([]),
+		});
+		await monitor.runOnce();
+		const ids = (filter) => Object.keys(monitor.snapshot({ proxy_host: filter, stream: null }).hosts.proxy_host);
+
+		assert.deepEqual(ids(visibilityFilter(true, 2)).sort(), ["12", "13"]);
+		assert.deepEqual(ids(visibilityFilter({ permission_visibility: "all" }, 2)).sort(), ["12", "13"]);
+		assert.deepEqual(ids(visibilityFilter({ permission_visibility: "user" }, 2)), ["13"]);
+		assert.deepEqual(ids(visibilityFilter({ permission_visibility: "user" }, 2, [12])).sort(), ["12", "13"]);
+		assert.deepEqual(ids(visibilityFilter({ permission_visibility: "user" }, 3, ["12"])), ["12"]);
+		assert.deepEqual(ids(visibilityFilter({ permission_visibility: "user" }, 3, null)), []);
 	});
 
 	it("shares concurrent rounds and survives failures", async () => {

@@ -42,6 +42,24 @@ export const isBlankLocation = (item: ProxyLocation) =>
 /** The locations to send to the API: blank rows removed, nothing else changed */
 export const cleanLocations = (items?: ProxyLocation[]) => (items || []).filter((l) => !isBlankLocation(l));
 
+/**
+ * For users who may not change advanced config: every location keeps the
+ * advanced config of the saved location with the same path, which is how the
+ * backend checks it. Regex and named locations may repeat a path, so the n-th
+ * location with a path gets the config of the n-th saved one with that path.
+ * A new or renamed location gets none.
+ */
+export const keepSavedAdvancedConfig = (items: ProxyLocation[], saved?: ProxyLocation[]): ProxyLocation[] => {
+	const seen = new Map<string, number>();
+	return items.map((item) => {
+		const path = `${item.path ?? ""}`.trim();
+		const n = seen.get(path) ?? 0;
+		seen.set(path, n + 1);
+		const match = (saved || []).filter((s) => `${s.path ?? ""}`.trim() === path)[n];
+		return { ...item, advancedConfig: match?.advancedConfig || "" };
+	});
+};
+
 // Characters that would break out of the generated nginx directive, the same
 // set the backend rejects. A host that is a single nginx variable is allowed.
 // Like the backend, the host part of `host/path` is checked on its own.
@@ -145,8 +163,16 @@ interface Props {
 	statuses?: NginxLocationStatus[];
 	// Index of a location to open and highlight (e.g. the one nginx rejected)
 	highlightIndex?: number | null;
+	// Only admins may change the advanced config of a location
+	allowAdvanced?: boolean;
 }
-export function LocationsFields({ initialValues, name = "locations", statuses, highlightIndex }: Props) {
+export function LocationsFields({
+	initialValues,
+	name = "locations",
+	statuses,
+	highlightIndex,
+	allowAdvanced = true,
+}: Props) {
 	const [rows, setRows] = useState<Row[]>(() => (initialValues || []).map((value, id) => ({ id, value })));
 	const { setFieldValue, submitCount } = useFormikContext();
 	const [expanded, setExpanded] = useState<number[]>([]);
@@ -337,7 +363,8 @@ export function LocationsFields({ initialValues, name = "locations", statuses, h
 							index={index}
 							name={name}
 							isOpen={expanded.includes(row.id)}
-							isAdvVisible={advVisible.includes(row.id)}
+							allowAdvanced={allowAdvanced}
+							isAdvVisible={allowAdvanced && advVisible.includes(row.id)}
 							isHighlighted={row.id === highlightedId}
 							hasErrors={!!errors && (submitCount > 0 || touched.some((t) => t.startsWith(`${row.id}.`)))}
 							errorFor={showError}
@@ -370,6 +397,7 @@ interface CardProps {
 	index: number;
 	name: string;
 	isOpen: boolean;
+	allowAdvanced: boolean;
 	isAdvVisible: boolean;
 	isHighlighted: boolean;
 	hasErrors: boolean;
@@ -387,6 +415,7 @@ function LocationCard({
 	index,
 	name,
 	isOpen,
+	allowAdvanced,
 	isAdvVisible,
 	isHighlighted,
 	hasErrors,
@@ -512,7 +541,7 @@ function LocationCard({
 			{isOpen && (
 				<div className="card-body" id={bodyId}>
 					<div className="row">
-						<div className="col-md-10">
+						<div className={allowAdvanced ? "col-md-10" : "col-md-12"}>
 							<div className={cn("input-group mb-3", { "has-validation": !!pathError })}>
 								<span className="input-group-text">
 									<T id="location.path-label" />
@@ -530,18 +559,20 @@ function LocationCard({
 								{pathError ? <div className="invalid-feedback">{pathError}</div> : null}
 							</div>
 						</div>
-						<div className="col-md-2 text-end">
-							<button
-								type="button"
-								className="btn p-0"
-								title={intl.formatMessage({ id: "location.advanced" })}
-								aria-label={intl.formatMessage({ id: "location.advanced" })}
-								aria-expanded={isAdvVisible}
-								onClick={onToggleAdv}
-							>
-								<IconSettings size={20} />
-							</button>
-						</div>
+						{allowAdvanced && (
+							<div className="col-md-2 text-end">
+								<button
+									type="button"
+									className="btn p-0"
+									title={intl.formatMessage({ id: "location.advanced" })}
+									aria-label={intl.formatMessage({ id: "location.advanced" })}
+									aria-expanded={isAdvVisible}
+									onClick={onToggleAdv}
+								>
+									<IconSettings size={20} />
+								</button>
+							</div>
+						)}
 					</div>
 					{status && status.status !== "ok" && status.message ? (
 						<div
@@ -554,9 +585,9 @@ function LocationCard({
 						</div>
 					) : null}
 					<div className="row">
-						<div className="col-md-3">
+						<div className="col-sm-3 col-md-3">
 							<div className="mb-3">
-								<label className="form-label" htmlFor={`location-forwardScheme-${row.id}`}>
+								<label className="form-label text-nowrap" htmlFor={`location-forwardScheme-${row.id}`}>
 									<T id="host.forward-scheme" />
 								</label>
 								<select
@@ -570,9 +601,9 @@ function LocationCard({
 								</select>
 							</div>
 						</div>
-						<div className="col-md-6">
+						<div className="col-sm-5 col-md-5">
 							<div className="mb-3">
-								<label className="form-label" htmlFor={`location-forwardHost-${row.id}`}>
+								<label className="form-label text-nowrap" htmlFor={`location-forwardHost-${row.id}`}>
 									<T id="proxy-host.forward-host" />
 								</label>
 								<UpstreamField
@@ -597,9 +628,9 @@ function LocationCard({
 								{hostError ? <div className="invalid-feedback">{hostError}</div> : null}
 							</div>
 						</div>
-						<div className="col-md-3">
+						<div className="col-sm-4 col-md-4">
 							<div className="mb-3">
-								<label className="form-label" htmlFor={`location-forwardPort-${row.id}`}>
+								<label className="form-label text-nowrap" htmlFor={`location-forwardPort-${row.id}`}>
 									<T id="host.forward-port" />
 								</label>
 								<input

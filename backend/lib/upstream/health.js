@@ -225,8 +225,8 @@ class HealthMonitor {
 	 * Snapshot in API shape, filtered.
 	 *
 	 * @param   {object}   filter
-	 * @param   {function(number): boolean|null} filter.proxy_host  owner filter, null = type not visible
-	 * @param   {function(number): boolean|null} filter.stream
+	 * @param   {function(number, number): boolean|null} filter.proxy_host  (owner id, host id) filter, null = type not visible
+	 * @param   {function(number, number): boolean|null} filter.stream
 	 * @returns {object}
 	 */
 	snapshot(filter = {}) {
@@ -237,7 +237,7 @@ class HealthMonitor {
 				continue;
 			}
 			for (const [id, value] of Object.entries(this.state[type] || {})) {
-				if (allow(value.owner_user_id)) {
+				if (allow(value.owner_user_id, Number(id))) {
 					const { owner_user_id: _owner, ...rest } = value;
 					hosts[type][id] = rest;
 				}
@@ -252,4 +252,20 @@ class HealthMonitor {
 	}
 }
 
-export { buildHealthTargets, HealthMonitor };
+/**
+ * The snapshot filter of one host type, the visibility rules of its list endpoint
+ *
+ * @param   {Object|boolean} accessData  what access.can("<type>:list") resolved to
+ * @param   {number}         userId
+ * @param   {Array<number>}  [allowedIds]  hosts shared with the user explicitly (permissions.meta.proxy_host_ids)
+ * @returns {function(number, number): boolean}
+ */
+const visibilityFilter = (accessData, userId, allowedIds = []) => {
+	if (accessData === true || accessData?.permission_visibility === "all") {
+		return () => true;
+	}
+	const allowed = new Set((Array.isArray(allowedIds) ? allowedIds : []).map(Number));
+	return (ownerId, hostId) => ownerId === userId || allowed.has(Number(hostId));
+};
+
+export { buildHealthTargets, HealthMonitor, visibilityFilter };

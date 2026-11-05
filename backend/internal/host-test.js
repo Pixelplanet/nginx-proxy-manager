@@ -10,6 +10,7 @@ import {
 	takePendingCertificate,
 	WARNING_MESSAGES,
 } from "../lib/host-test.js";
+import { matchSavedLocations } from "../lib/nginx-locations.js";
 import { checkTargets } from "../lib/upstream/check.js";
 import { consumeCheckBudget } from "../lib/upstream/check-budget.js";
 import { isUpstreamCheckEnabled } from "../lib/upstream/config.js";
@@ -68,6 +69,62 @@ const HOST_TYPES = {
 		expand: ["owner", "certificate"],
 		defaults: {},
 	},
+};
+
+const ADVANCED_CONFIG_DENIED = "You do not have permission to modify advanced configuration";
+
+/**
+ * Users who aren't admins may not change advanced configs, see the create and update of each host type. A test
+ * applies the same rule, so that it can't be used to run arbitrary advanced config through nginx -t. As in an
+ * update, a location without advanced_config keeps the one of the saved location it replaces.
+ *
+ * @param   {Access}       access
+ * @param   {String}       hostType
+ * @param   {Object}       input    sanitised payload, locations are completed in place
+ * @param   {Object|null}  row      the stored host when testing an edit
+ * @throws  {PermissionError}
+ */
+const checkAdvancedConfigPermission = (access, hostType, input, row) => {
+	if (hostType === "stream") {
+		return;
+	}
+	const isAdmin = access.hasRole?.("admin") || access.token.hasScope("admin");
+	if (isAdmin) {
+		return;
+	}
+	const filled = (value) => typeof value === "string" && value.trim() !== "";
+	if (!row) {
+		if (filled(input.advanced_config)) {
+			throw new errs.PermissionError(ADVANCED_CONFIG_DENIED);
+		}
+		if (
+			hostType === "proxy_host" &&
+			Array.isArray(input.locations) &&
+			input.locations.some((loc) => filled(loc?.advanced_config))
+		) {
+			throw new errs.PermissionError(ADVANCED_CONFIG_DENIED);
+		}
+		return;
+	}
+	if (typeof input.advanced_config !== "undefined" && input.advanced_config !== row.advanced_config) {
+		throw new errs.PermissionError(ADVANCED_CONFIG_DENIED);
+	}
+	if (hostType === "proxy_host" && Array.isArray(input.locations)) {
+		const existing = matchSavedLocations(input.locations, row.locations);
+		input.locations = input.locations.map((loc, i) => {
+			const existingAdv = existing[i]?.advanced_config || "";
+			if (!loc || typeof loc !== "object") {
+				return loc;
+			}
+			if (typeof loc.advanced_config === "undefined") {
+				return Object.assign({}, loc, { advanced_config: existingAdv });
+			}
+			if ((loc.advanced_config || "") !== existingAdv) {
+				throw new errs.PermissionError(ADVANCED_CONFIG_DENIED);
+			}
+			return loc;
+		});
+	}
 };
 
 const internalHostTest = {
@@ -183,11 +240,13 @@ const internalHostTest = {
 		let host;
 		if (id) {
 			const row = await type.get(access, { id, expand: type.expand });
+			checkAdvancedConfigPermission(access, hostType, input, row);
 			// the payload is merged over the stored row, like update does
 			host = internalHost.cleanSslHstsData(input, row);
 			host.id = row.id;
 			host.meta = _.assign({}, row.meta || {}, input.meta || {});
 		} else {
+			checkAdvancedConfigPermission(access, hostType, input, null);
 			host = internalHost.cleanSslHstsData(Object.assign({}, type.defaults, input));
 			host.id = internalNginx.DRY_RUN_ID;
 			host.owner_user_id = access.token.getUserId(1);

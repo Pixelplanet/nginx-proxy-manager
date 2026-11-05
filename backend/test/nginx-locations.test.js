@@ -9,6 +9,7 @@ import {
 	hasVariablePath,
 	isVariableHost,
 	MESSAGES,
+	matchSavedLocations,
 	normaliseLocationPath,
 	parseLocationPath,
 	preflightLocation,
@@ -96,6 +97,29 @@ describe("findDuplicatePath", () => {
 		assert.equal(findDuplicatePath([{ path: "~* \\.php$" }, { path: "~* \\.php$" }]), null);
 		assert.equal(findDuplicatePath([{ path: "~ ^/api" }, { path: "~ ^/api" }]), null);
 		assert.equal(findDuplicatePath([{ path: "@fallback" }, { path: "@fallback" }]), null);
+	});
+});
+
+describe("matchSavedLocations", () => {
+	it("matches by the trimmed path", () => {
+		const saved = [{ path: " /api ", advanced_config: "a" }, { path: "/b" }];
+		const match = matchSavedLocations([{ path: "/b" }, { path: "/api" }, { path: "/new" }], saved);
+		assert.deepEqual(match, [saved[1], saved[0], undefined]);
+	});
+
+	it("matches a repeated path by its occurrence", () => {
+		const saved = [
+			{ path: "~ ^/x", advanced_config: "first" },
+			{ path: "/y" },
+			{ path: "~ ^/x", advanced_config: "second" },
+		];
+		const match = matchSavedLocations([{ path: "~ ^/x" }, { path: "~ ^/x" }, { path: "~ ^/x" }], saved);
+		assert.deepEqual(match, [saved[0], saved[2], undefined]);
+	});
+
+	it("copes with hosts without locations", () => {
+		assert.deepEqual(matchSavedLocations([{ path: "/a" }], null), [undefined]);
+		assert.deepEqual(matchSavedLocations(undefined, []), []);
 	});
 });
 

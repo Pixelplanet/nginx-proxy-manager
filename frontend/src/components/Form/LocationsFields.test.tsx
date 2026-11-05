@@ -2,7 +2,14 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { Form, Formik } from "formik";
 import type { NginxLocationStatus, ProxyLocation, UpstreamCheckResult } from "src/api/backend";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanLocations, isBlankLocation, LocationsFields, statusForRow, validateLocations } from "./LocationsFields";
+import {
+	cleanLocations,
+	isBlankLocation,
+	keepSavedAdvancedConfig,
+	LocationsFields,
+	statusForRow,
+	validateLocations,
+} from "./LocationsFields";
 
 const { checkState } = vi.hoisted(() => ({
 	checkState: { result: null as UpstreamCheckResult | null, calls: [] as any[], candidates: undefined as any },
@@ -35,7 +42,7 @@ const loc = (l: Partial<ProxyLocation>): ProxyLocation => ({
 
 const renderFields = (
 	initial: ProxyLocation[],
-	props: { statuses?: NginxLocationStatus[]; highlightIndex?: number | null } = {},
+	props: { statuses?: NginxLocationStatus[]; highlightIndex?: number | null; allowAdvanced?: boolean } = {},
 ) => {
 	const onSubmit = vi.fn();
 	const utils = render(
@@ -408,4 +415,39 @@ describe("LocationsFields", () => {
 			expect(card.querySelector(".invalid-feedback")).toBeNull();
 		});
 	}
+
+	it("shows the advanced config of a location only to those who may change it", () => {
+		renderFields([loc({ path: "/a", advancedConfig: "expires 1d;" })], { highlightIndex: 0 });
+		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
+		expect(screen.getByDisplayValue("expires 1d;")).toBeInTheDocument();
+		cleanup();
+
+		renderFields([loc({ path: "/a", advancedConfig: "expires 1d;" })], { highlightIndex: 0, allowAdvanced: false });
+		expect(screen.getByPlaceholderText("/path")).toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "Advanced" })).toBeNull();
+		expect(screen.queryByDisplayValue("expires 1d;")).toBeNull();
+	});
+});
+
+describe("keepSavedAdvancedConfig", () => {
+	it("gives every location the advanced config of the saved one with the same path", () => {
+		const saved = [loc({ path: "/a", advancedConfig: "a" }), loc({ path: "/b", advancedConfig: "b" })];
+		const items = [
+			loc({ path: "/b", advancedConfig: "changed", enabled: false }),
+			loc({ path: " /a ", advancedConfig: "" }),
+			loc({ path: "/new", advancedConfig: "new" }),
+		];
+		expect(keepSavedAdvancedConfig(items, saved).map((l) => [l.advancedConfig, l.enabled])).toEqual([
+			["b", false],
+			["a", undefined],
+			["", undefined],
+		]);
+	});
+
+	it("matches a repeated regex path by its occurrence, as the backend does", () => {
+		const saved = [loc({ path: "~ ^/x", advancedConfig: "1" }), loc({ path: "~ ^/x", advancedConfig: "2" })];
+		const items = [loc({ path: "~ ^/x" }), loc({ path: "~ ^/x" }), loc({ path: "~ ^/x", advancedConfig: "3" })];
+		expect(keepSavedAdvancedConfig(items, saved).map((l) => l.advancedConfig)).toEqual(["1", "2", ""]);
+		expect(keepSavedAdvancedConfig(items, undefined).map((l) => l.advancedConfig)).toEqual(["", "", ""]);
+	});
 });

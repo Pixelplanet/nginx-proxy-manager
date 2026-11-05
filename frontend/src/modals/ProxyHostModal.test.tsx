@@ -46,12 +46,22 @@ const me = {
 	},
 };
 
+// A user who isn't an admin and manages the proxy hosts
+const user = { ...me, id: 2, name: "User", nickname: "user", email: "user@example.com", roles: [] };
+
+let currentUser: typeof me = me;
+let currentHost: typeof host = host;
+
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 let putBodies: any[] = [];
+let testBodies: any[] = [];
 
 beforeEach(() => {
 	localStorage.clear();
 	putBodies = [];
+	testBodies = [];
+	currentUser = me;
+	currentHost = host;
 	vi.stubGlobal(
 		"fetch",
 		vi.fn<typeof fetch>(async (input, init) => {
@@ -70,8 +80,20 @@ beforeEach(() => {
 					},
 				});
 			}
-			if (url.startsWith("/api/users/me")) return json(me);
-			if (url.startsWith("/api/nginx/proxy-hosts/1")) return json(host);
+			if (init?.method === "POST" && url.startsWith("/api/nginx/proxy-hosts/test")) {
+				testBodies.push(JSON.parse(String(init.body)));
+				return json({
+					ok: true,
+					nginx_online: true,
+					nginx_err: null,
+					nginx_details: null,
+					nginx_locations: [],
+					upstreams: [],
+					warnings: [],
+				});
+			}
+			if (url.startsWith("/api/users/me")) return json(currentUser);
+			if (url.startsWith("/api/nginx/proxy-hosts/1")) return json(currentHost);
 			if (url.startsWith("/api/nginx/access-lists") || url.startsWith("/api/nginx/certificates")) return json([]);
 			return json({});
 		}),
@@ -138,6 +160,22 @@ describe("ProxyHostModal tabs", () => {
 		expect(document.activeElement).toBe(tabs[0]);
 	});
 
+	it("leaves out the Advanced tab for a user who isn't an admin", async () => {
+		currentUser = user;
+		const tabs = await open();
+		expect(tabs).toHaveLength(3);
+		expect(document.getElementById("tab-advanced")).toBeNull();
+
+		tabs[0].focus();
+		fireEvent.keyDown(tabs[0], { key: "End" });
+		expect(selected()).toBe(tabs[2]);
+		expect(document.activeElement).toBe(tabs[2]);
+		fireEvent.keyDown(tabs[2], { key: "ArrowRight" });
+		expect(document.activeElement).toBe(tabs[0]);
+		fireEvent.keyDown(tabs[0], { key: "ArrowLeft" });
+		expect(document.activeElement).toBe(tabs[2]);
+	});
+
 	it("ignores other keys and still switches on click", async () => {
 		const tabs = await open();
 		fireEvent.keyDown(tabs[0], { key: "a" });
@@ -179,5 +217,44 @@ describe("ProxyHostModal save with warnings", () => {
 		// confirm() answered "no": the modal and the edit stay
 		expect(screen.getByTestId("save-warning")).toBeInTheDocument();
 		expect(document.getElementById("forwardPort")).toHaveValue(8082);
+	});
+});
+
+describe("ProxyHostModal for a user who isn't an admin", () => {
+	it("sends the saved advanced config of the host and of its locations back unchanged", async () => {
+		currentUser = user;
+		currentHost = {
+			...host,
+			advanced_config: "add_header X-Host 1;",
+			locations: [
+				{ path: "~ ^/img", forward_scheme: "http", forward_host: "img", forward_port: 80, advanced_config: "expires 1d;" },
+				{ path: "~ ^/img", forward_scheme: "http", forward_host: "img", forward_port: 80, advanced_config: "expires 7d;" },
+			],
+		} as any;
+		await open();
+		fireEvent.change(document.getElementById("forwardPort") as HTMLInputElement, { target: { value: "8081" } });
+		fireEvent.click(screen.getByRole("button", { name: "Save" }));
+		await screen.findByTestId("save-warning");
+
+		expect(putBodies).toHaveLength(1);
+		expect(putBodies[0]).not.toHaveProperty("advanced_config");
+		expect(putBodies[0].locations.map((l: any) => l.advanced_config)).toEqual(["expires 1d;", "expires 7d;"]);
+	});
+
+	it("tests what a save would send, without an advanced config of its own", async () => {
+		currentUser = user;
+		currentHost = {
+			...host,
+			advanced_config: "add_header X-Host 1;",
+			locations: [
+				{ path: "/api", forward_scheme: "http", forward_host: "api", forward_port: 80, advanced_config: "expires 1d;" },
+			],
+		} as any;
+		await open();
+		fireEvent.click(screen.getByRole("button", { name: "Test" }));
+		await waitFor(() => expect(testBodies).toHaveLength(1));
+
+		expect(testBodies[0]).not.toHaveProperty("advanced_config");
+		expect(testBodies[0].locations.map((l: any) => l.advanced_config)).toEqual(["expires 1d;"]);
 	});
 });

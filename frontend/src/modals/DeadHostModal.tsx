@@ -18,7 +18,7 @@ import {
 	TestConfigButton,
 } from "src/components";
 import { FormModal } from "src/components/Form";
-import { useDeadHost, useHostConfigTest, useSetDeadHost } from "src/hooks";
+import { useDeadHost, useHostConfigTest, useSetDeadHost, useUser } from "src/hooks";
 import { T } from "src/locale";
 import { formatApiError, getNginxErrorDetails, hasSaveWarnings, stripServerMeta } from "src/modules/HostStatus";
 import { showObjectSuccess } from "src/notifications";
@@ -31,6 +31,7 @@ interface Props extends InnerModalProps {
 	id: number | "new";
 }
 const DeadHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
+	const { data: currentUser } = useUser("me");
 	const { data, isLoading, error } = useDeadHost(id);
 	const { mutate: setDeadHost } = useSetDeadHost();
 	const [errorMsg, setErrorMsg] = useState<ReactNode | null>(null);
@@ -41,13 +42,23 @@ const DeadHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 	const [savedId, setSavedId] = useState<number | null>(null);
 	const configTest = useHostConfigTest("dead-hosts");
 
+	const isAdmin = currentUser?.roles?.includes("admin");
+
 	// What a save sends, also what "Test" checks
-	const buildPayload = (values: any) => ({
-		id: savedId ?? (id === "new" ? undefined : id),
-		...values,
-		// server-owned status keys are never sent back
-		meta: stripServerMeta(values.meta),
-	});
+	const buildPayload = (values: any) => {
+		const payload = {
+			id: savedId ?? (id === "new" ? undefined : id),
+			...values,
+			// server-owned status keys are never sent back
+			meta: stripServerMeta(values.meta),
+		};
+		// Only admins may change the advanced config
+		if (!isAdmin) {
+			delete payload.advanced_config;
+			delete payload.advancedConfig;
+		}
+		return payload;
+	};
 
 	const onSubmit = async (values: any, { setSubmitting, resetForm }: any) => {
 		if (isSubmitting) return;
@@ -167,19 +178,21 @@ const DeadHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 													<T id="column.ssl" />
 												</a>
 											</li>
-											<li className="nav-item ms-auto" role="presentation">
-												<a
-													href="#tab-advanced"
-													className="nav-link"
-													title="Settings"
-													data-bs-toggle="tab"
-													aria-selected="false"
-													tabIndex={-1}
-													role="tab"
-												>
-													<IconSettings size={20} />
-												</a>
-											</li>
+											{isAdmin && (
+												<li className="nav-item ms-auto" role="presentation">
+													<a
+														href="#tab-advanced"
+														className="nav-link"
+														title="Settings"
+														data-bs-toggle="tab"
+														aria-selected="false"
+														tabIndex={-1}
+														role="tab"
+													>
+														<IconSettings size={20} />
+													</a>
+												</li>
+											)}
 										</ul>
 									</div>
 									<div className="card-body">
@@ -195,9 +208,11 @@ const DeadHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 												/>
 												<SSLOptionsFields color="bg-red" />
 											</div>
-											<div className="tab-pane" id="tab-advanced" role="tabpanel">
-												<NginxConfigField />
-											</div>
+											{isAdmin && (
+												<div className="tab-pane" id="tab-advanced" role="tabpanel">
+													<NginxConfigField />
+												</div>
+											)}
 										</div>
 									</div>
 								</div>

@@ -109,6 +109,26 @@ const parseLocationPath = (path) => {
 const normaliseLocationPath = (path) => parseLocationPath(path).normalised;
 
 /**
+ * The saved location each incoming location replaces, matched by path (as the advanced config check of
+ * users who aren't admins does). Paths are compared trimmed, as they are saved; regex and named locations
+ * may repeat a path, so the n-th location with a path matches the n-th saved one with that path.
+ *
+ * @param   {Array} locations  incoming
+ * @param   {Array} saved      of the saved host
+ * @returns {Array}            for each incoming location the saved one, or undefined
+ */
+const matchSavedLocations = (locations, saved) => {
+	const pathOf = (location) => `${location?.path ?? ""}`.trim();
+	const seen = new Map();
+	return (locations || []).map((location) => {
+		const path = pathOf(location);
+		const n = seen.get(path) || 0;
+		seen.set(path, n + 1);
+		return (Array.isArray(saved) ? saved : []).filter((s) => pathOf(s) === path)[n];
+	});
+};
+
+/**
  * Only the duplicates nginx itself rejects with `duplicate location`: two exact locations with the same
  * URI, or two prefix locations with the same URI (`/x` and `^~ /x` count as the same). nginx accepts
  * duplicate regex and named locations (the first one wins), so they are left alone.
@@ -505,6 +525,7 @@ export {
 	hasVariablePath,
 	isolateFaultyLocations,
 	isVariableHost,
+	matchSavedLocations,
 	normaliseLocationPath,
 	parseLocationPath,
 	preflightLocation,

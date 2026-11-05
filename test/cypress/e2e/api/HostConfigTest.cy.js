@@ -12,6 +12,7 @@ describe('Host config test', () => {
 	let certId;
 	let missingCertId;
 	let disabledHostId;
+	let sharedHostId;
 
 	const request = (host, path) => {
 		return cy.task('exec', { command: `curl --noproxy '*' -s -w '\n%{http_code}' -H 'Host: ${host}' http://fullstack${path}` }, { log: false })
@@ -368,8 +369,109 @@ describe('Host config test', () => {
 		});
 	});
 
+	it('Should not let users who are not admins test an advanced config', () => {
+		const sharedDomain = 'config-test-shared.example.com';
+		const email = 'config-tester@example.com';
+		const testAs = (userToken, path, data) => cy.task('backendApiPost', {
+			token:         userToken,
+			path:          path,
+			data:          data,
+			returnOnError: true,
+		});
+		const expectDenied = (data) => {
+			expect(data.error, JSON.stringify(data)).to.have.property('code', 403);
+			expect(data.error.message).to.equal('Permission Denied');
+		};
+
+		// an admin's host with an advanced config, shared with the user ('Created Items Only' + proxy_host_ids)
+		cy.task('backendApiPost', {
+			token: token,
+			path:  '/api/nginx/proxy-hosts',
+			data:  proxyHost({
+				domain_names:    [sharedDomain],
+				advanced_config: 'add_header X-Shared 1;',
+				locations:       [{ path: '/api', forward_scheme: 'http', forward_host: 'examplesite', forward_port: 80, advanced_config: 'add_header X-Api 1;' }],
+			}),
+		}).then((host) => {
+			sharedHostId = host.id;
+			return cy.task('backendApiPost', {
+				token: token,
+				path:  '/api/users',
+				data:  {
+					name:     email,
+					nickname: 'config-tester',
+					email:    email,
+					roles:    ['user'],
+					auth:     { type: 'password', secret: 'changeme' },
+				},
+			});
+		}).then((user) => {
+			return cy.task('backendApiPut', {
+				token: token,
+				path:  `/api/users/${user.id}/permissions`,
+				data:  {
+					visibility:        'user',
+					proxy_hosts:       'manage',
+					redirection_hosts: 'manage',
+					dead_hosts:        'manage',
+					meta:              { proxy_host_ids: [sharedHostId] },
+				},
+			});
+		}).then(() => cy.getToken(null, { identity: email, secret: 'changeme' })).then((userToken) => {
+			// new hosts
+			testAs(userToken, '/api/nginx/proxy-hosts/test', proxyHost({ advanced_config: 'add_header X-Mine 1;' })).then(expectDenied);
+			testAs(userToken, '/api/nginx/proxy-hosts/test', proxyHost({
+				locations: [{ path: '/a', forward_scheme: 'http', forward_host: 'examplesite', forward_port: 80, advanced_config: 'return 200;' }],
+			})).then(expectDenied);
+			testAs(userToken, '/api/nginx/dead-hosts/test', {
+				domain_names:    ['config-test-dead-user.example.com'],
+				advanced_config: 'return 200;',
+			}).then(expectDenied);
+			testAs(userToken, '/api/nginx/proxy-hosts/test', proxyHost()).then((data) => {
+				expect(data).to.include({ ok: true });
+			});
+
+			// the shared host: visible to the user, its advanced configs can't be changed by a test either
+			testAs(userToken, '/api/nginx/proxy-hosts/test', proxyHost({
+				id:              sharedHostId,
+				domain_names:    [sharedDomain],
+				advanced_config: 'this_is_not_a_directive on;',
+			})).then(expectDenied);
+			testAs(userToken, '/api/nginx/proxy-hosts/test', {
+				id:             sharedHostId,
+				domain_names:   [sharedDomain],
+				forward_scheme: 'http',
+				forward_host:   'examplesite',
+				forward_port:   80,
+				locations:      [{ path: '/api', forward_scheme: 'http', forward_host: 'examplesite', forward_port: 80, advanced_config: '' }],
+			}).then(expectDenied);
+			// without advanced configs in the payload the saved ones are tested
+			testAs(userToken, '/api/nginx/proxy-hosts/test', {
+				id:             sharedHostId,
+				domain_names:   [sharedDomain],
+				forward_scheme: 'http',
+				forward_host:   'examplesite',
+				forward_port:   80,
+				locations:      [{ path: '/api', forward_scheme: 'http', forward_host: 'examplesite', forward_port: 80 }],
+			}).then((data) => {
+				cy.validateSwaggerSchema('post', 200, '/nginx/proxy-hosts/test', data);
+				expect(data).to.include({ ok: true, nginx_online: true });
+				expect(data.nginx_locations).to.have.length(1);
+			});
+		});
+
+		// nothing was changed by the tests
+		cy.then(() => cy.task('backendApiGet', {
+			token: token,
+			path:  `/api/nginx/proxy-hosts/${sharedHostId}`,
+		})).then((data) => {
+			expect(data.advanced_config).to.equal('add_header X-Shared 1;');
+			expect(data.locations[0].advanced_config).to.equal('add_header X-Api 1;');
+		});
+	});
+
 	after(() => {
-		for (const id of [hostId, sslHostId, disabledHostId]) {
+		for (const id of [hostId, sslHostId, disabledHostId, sharedHostId]) {
 			if (id) {
 				cy.task('backendApiDelete', {
 					token: token,

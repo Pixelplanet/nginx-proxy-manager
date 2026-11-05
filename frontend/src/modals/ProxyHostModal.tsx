@@ -14,6 +14,7 @@ import {
 	ForwardHostCheckHint,
 	HasPermission,
 	HostConfigTestResult,
+	keepSavedAdvancedConfig,
 	Loading,
 	LocationsFields,
 	NginxConfigField,
@@ -119,27 +120,31 @@ const ProxyHostModal = EasyModal.create(({ id, prefill, visible, remove }: Props
 	const guardPrefill = usePrefillGuard();
 	const configTest = useHostConfigTest("proxy-hosts");
 
+	const isAdmin = currentUser?.roles?.includes("admin");
+	// Only admins may change the advanced config, the others don't get its tab
+	const tabOrder = isAdmin ? TAB_ORDER : TAB_ORDER.filter((tab) => tab !== "advanced");
+
 	const showTab = useCallback((tab: TabId) => setActiveTab(tab), []);
 	const tabRefs = useRef<Partial<Record<TabId, HTMLAnchorElement | null>>>({});
 	// Tabs pattern with a roving tabindex: only the active tab is in the tab order, the arrow keys (and Home /
 	// End) move between the tabs and take the focus along, like Bootstrap's tab component did
 	const onTabKeyDown = (e: KeyboardEvent<HTMLAnchorElement>, tab: TabId) => {
-		const i = TAB_ORDER.indexOf(tab);
+		const i = tabOrder.indexOf(tab);
 		let next: TabId;
 		switch (e.key) {
 			case "ArrowRight":
 			case "ArrowDown":
-				next = TAB_ORDER[(i + 1) % TAB_ORDER.length];
+				next = tabOrder[(i + 1) % tabOrder.length];
 				break;
 			case "ArrowLeft":
 			case "ArrowUp":
-				next = TAB_ORDER[(i + TAB_ORDER.length - 1) % TAB_ORDER.length];
+				next = tabOrder[(i + tabOrder.length - 1) % tabOrder.length];
 				break;
 			case "Home":
-				next = TAB_ORDER[0];
+				next = tabOrder[0];
 				break;
 			case "End":
-				next = TAB_ORDER[TAB_ORDER.length - 1];
+				next = tabOrder[tabOrder.length - 1];
 				break;
 			default:
 				return;
@@ -168,14 +173,23 @@ const ProxyHostModal = EasyModal.create(({ id, prefill, visible, remove }: Props
 	const tabPane = (tab: TabId) => cn("tab-pane", { "active show": activeTab === tab });
 
 	// What a save sends, also what "Test" checks
-	const buildPayload = (values: any) => ({
-		id: savedId ?? (id === "new" ? undefined : id),
-		...values,
-		// rows that were added but never filled in
-		locations: cleanLocations(values.locations),
-		// server-owned status keys are never sent back
-		meta: stripServerMeta(values.meta),
-	});
+	const buildPayload = (values: any) => {
+		const payload = {
+			id: savedId ?? (id === "new" ? undefined : id),
+			...values,
+			// rows that were added but never filled in
+			locations: cleanLocations(values.locations),
+			// server-owned status keys are never sent back
+			meta: stripServerMeta(values.meta),
+		};
+		if (!isAdmin) {
+			delete payload.advanced_config;
+			delete payload.advancedConfig;
+			// as the backend matches them: by path
+			payload.locations = keepSavedAdvancedConfig(payload.locations, data?.locations);
+		}
+		return payload;
+	};
 
 	const onTest = async (form: any) => {
 		setErrorMsg(null);
@@ -327,14 +341,16 @@ const ProxyHostModal = EasyModal.create(({ id, prefill, visible, remove }: Props
 													<T id="column.ssl" />
 												</a>
 											</div>
-											<div className="nav-item ms-auto" role="presentation">
-												<a
-													{...tabLink("advanced")}
-													title={intl.formatMessage({ id: "location.advanced" })}
-												>
-													<IconSettings size={20} />
-												</a>
-											</div>
+											{isAdmin && (
+												<div className="nav-item ms-auto" role="presentation">
+													<a
+														{...tabLink("advanced")}
+														title={intl.formatMessage({ id: "location.advanced" })}
+													>
+														<IconSettings size={20} />
+													</a>
+												</div>
+											)}
 										</div>
 									</div>
 									<div className="card-body">
@@ -342,12 +358,12 @@ const ProxyHostModal = EasyModal.create(({ id, prefill, visible, remove }: Props
 											<div className={tabPane("details")} id="tab-details" role="tabpanel" aria-labelledby="tab-link-details">
 												<DomainNamesField isWildcardPermitted dnsProviderWildcardSupported />
 												<div className="row">
-													<div className="col-md-3">
+													<div className="col-sm-3 col-md-3">
 														<Field name="forwardScheme">
 															{({ field, form }: any) => (
 																<div className="mb-3">
 																	<label
-																		className="form-label"
+																		className="form-label text-nowrap"
 																		htmlFor="forwardScheme"
 																	>
 																		<T id="host.forward-scheme" />
@@ -373,11 +389,14 @@ const ProxyHostModal = EasyModal.create(({ id, prefill, visible, remove }: Props
 															)}
 														</Field>
 													</div>
-													<div className="col-md-6">
+													<div className="col-sm-5 col-md-5">
 														<Field name="forwardHost" validate={validateForwardHost}>
 															{({ field, form }: any) => (
 																<div className="mb-3">
-																	<label className="form-label" htmlFor="forwardHost">
+																	<label
+																		className="form-label text-nowrap"
+																		htmlFor="forwardHost"
+																	>
 																		<T id="proxy-host.forward-host" />
 																	</label>
 																	<UpstreamField
@@ -437,11 +456,14 @@ const ProxyHostModal = EasyModal.create(({ id, prefill, visible, remove }: Props
 															)}
 														</Field>
 													</div>
-													<div className="col-md-3">
+													<div className="col-sm-4 col-md-4">
 														<Field name="forwardPort" validate={validateNumber(1, 65535)}>
 															{({ field, form }: any) => (
 																<div className="mb-3">
-																	<label className="form-label" htmlFor="forwardPort">
+																	<label
+																		className="form-label text-nowrap"
+																		htmlFor="forwardPort"
+																	>
 																		<T id="host.forward-port" />
 																	</label>
 																	<input
@@ -553,6 +575,7 @@ const ProxyHostModal = EasyModal.create(({ id, prefill, visible, remove }: Props
 														(savedMeta ?? data?.meta)?.nginxLocations
 													}
 													highlightIndex={highlightIndex}
+													allowAdvanced={!!isAdmin}
 												/>
 											</div>
 											<div className={tabPane("ssl")} id="tab-ssl" role="tabpanel" aria-labelledby="tab-link-ssl">
@@ -564,9 +587,16 @@ const ProxyHostModal = EasyModal.create(({ id, prefill, visible, remove }: Props
 												/>
 												<SSLOptionsFields color="bg-lime" forProxyHost={true} />
 											</div>
-											<div className={tabPane("advanced")} id="tab-advanced" role="tabpanel" aria-labelledby="tab-link-advanced">
-												<NginxConfigField />
-											</div>
+											{isAdmin && (
+												<div
+													className={tabPane("advanced")}
+													id="tab-advanced"
+													role="tabpanel"
+													aria-labelledby="tab-link-advanced"
+												>
+													<NginxConfigField />
+												</div>
+											)}
 										</div>
 									</div>
 								</div>

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import { access, db, load, ts } from "./support/backend.js";
+import { access, db, load, ts, userAccess } from "./support/backend.js";
 
 const errs = await load("lib/error.js");
 const internalNginx = await load("internal/nginx.js");
@@ -11,6 +11,7 @@ const original = {};
 let issued = [];
 let deleted = [];
 let dryRuns = 0;
+let configures = 0;
 // Certificate ids nginx rejects: an update that is only rejected once the new certificate is in it
 let rejectCertificates = new Set();
 
@@ -24,6 +25,7 @@ before(() => {
 	original.audit = internalAuditLog.add;
 	internalAuditLog.add = async () => {};
 	internalNginx.configure = async (_model, _hostType, host, opts = {}) => {
+		configures++;
 		if (opts.dryRun) {
 			dryRuns++;
 		}
@@ -142,6 +144,7 @@ for (const type of types) {
 			issued = [];
 			deleted = [];
 			dryRuns = 0;
+			configures = 0;
 			rejectCertificates = new Set();
 		});
 		afterEach(async () => {
@@ -182,6 +185,28 @@ for (const type of types) {
 			assert.equal((await host(id)).certificate_id, issued[0]);
 			assert.deepEqual(await liveCertificates(), issued);
 		});
+
+		if (type.bad.advanced_config) {
+			it("refuses a non-admin's advanced config before checking it or requesting a certificate", async () => {
+				const id = await insertHost();
+				await assert.rejects(
+					internal.update(userAccess(), { id, certificate_id: "new", advanced_config: "add_header X-A 1;" }),
+					errs.PermissionError,
+				);
+				assert.deepEqual(issued, []);
+				assert.equal(configures, 0);
+				const row = await host(id);
+				assert.equal(row.certificate_id, 0);
+				assert.equal(row.advanced_config, "");
+			});
+
+			it("lets a non-admin update a host when the advanced config is left as it is", async () => {
+				const id = await insertHost();
+				await internal.update(userAccess(), { id, certificate_id: "new", advanced_config: "" });
+				assert.equal(issued.length, 1);
+				assert.equal((await host(id)).certificate_id, issued[0]);
+			});
+		}
 
 		if (type.skipsDisabled) {
 			it("skips the check for a disabled host, as the update does", async () => {

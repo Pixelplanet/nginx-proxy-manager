@@ -1156,7 +1156,17 @@ const internalNginx = {
 			}
 			if (HOST_MODELS[hostType]) {
 				const row = await HOST_MODELS[hostType].query().where("id", hostId).first();
-				return !!row && row.owner_user_id === access.token.getUserId(1);
+				// Proxy hosts can also be shared with a user explicitly, see permissions.meta.proxy_host_ids
+				const permissions = access.getPermissions ? access.getPermissions() : {};
+				const allowedIds =
+					hostType === "proxy_host"
+						? permissions?.meta?.proxy_host_ids || permissions?.meta?.proxyHostIds || []
+						: [];
+				return (
+					!!row &&
+					(row.owner_user_id === access.token.getUserId(1) ||
+						(!row.is_deleted && allowedIds.map(Number).includes(Number(row.id))))
+				);
 			}
 		} catch {
 			// not visible

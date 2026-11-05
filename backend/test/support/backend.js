@@ -33,9 +33,27 @@ await db("user").insert({
 /** An access object that may do everything, as for an admin */
 const access = {
 	can: async () => ({ permission_visibility: "all" }),
-	token: { getUserId: () => 1 },
+	hasRole: (role) => role === "admin",
+	getPermissions: () => ({ visibility: "all" }),
+	token: { getUserId: () => 1, hasScope: (scope) => scope === "admin" },
 };
+
+/**
+ * An access object for a user who isn't an admin
+ *
+ * @param   {Object}  [opts]
+ * @param   {Number}  [opts.userId]
+ * @param   {String}  [opts.visibility]  "all" or "user" ('Created Items Only')
+ * @param   {Object}  [opts.meta]        permissions.meta, eg. { proxy_host_ids: [1] }
+ * @returns {Object}
+ */
+const userAccess = ({ userId = 1, visibility = "all", meta = null } = {}) => ({
+	can: async () => ({ permission_visibility: visibility }),
+	hasRole: () => false,
+	getPermissions: () => ({ visibility, meta }),
+	token: { getUserId: () => userId, hasScope: () => false },
+});
 
 const tick = (ms = 5) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export { access, db, load, tick, ts };
+export { access, db, load, tick, ts, userAccess };

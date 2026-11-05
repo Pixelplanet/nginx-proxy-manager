@@ -17,7 +17,7 @@ import {
 import { DnsDiscoveryUnavailable, discoverDns } from "../lib/upstream/dns-discovery.js";
 import { describeDockerError, discoverDocker } from "../lib/upstream/docker.js";
 import { TooManyRequestsError } from "../lib/upstream/errors.js";
-import { HealthMonitor } from "../lib/upstream/health.js";
+import { HealthMonitor, visibilityFilter } from "../lib/upstream/health.js";
 import { createRateLimiter } from "../lib/upstream/rate-limit.js";
 import { debug, global as logger } from "../logger.js";
 import proxyHostModel from "../models/proxy_host.js";
@@ -241,15 +241,11 @@ const internalUpstream = {
 	 * @returns {Promise<object>}
 	 */
 	getHealth: async (access) => {
-		const visibility = async (permission) => {
+		const visibility = async (permission, allowedIds) => {
 			try {
 				// Polled by every open hosts page: a missing permission is expected, don't log it as an error
 				const accessData = await access.can(permission, undefined, { quiet: true });
-				if (accessData === true || accessData.permission_visibility === "all") {
-					return () => true;
-				}
-				const userId = access.token.getUserId(1);
-				return (ownerId) => ownerId === userId;
+				return visibilityFilter(accessData, access.token.getUserId(1), allowedIds);
 			} catch (err) {
 				if (err instanceof errs.PermissionError) {
 					return null;
@@ -258,8 +254,11 @@ const internalUpstream = {
 			}
 		};
 
+		// Proxy hosts can also be shared with a user explicitly, as in the proxy host list
+		const permissions = access.getPermissions ? access.getPermissions() : {};
+		const allowedProxyHostIds = permissions?.meta?.proxy_host_ids || permissions?.meta?.proxyHostIds || [];
 		const [proxyFilter, streamFilter] = await Promise.all([
-			visibility("proxy_hosts:list"),
+			visibility("proxy_hosts:list", allowedProxyHostIds),
 			visibility("streams:list"),
 		]);
 		if (!proxyFilter && !streamFilter) {

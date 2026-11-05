@@ -812,11 +812,20 @@
 	"password.show": {
 		"defaultMessage": "Passwort anzeigen"
 	},
+	"permissions.allowed-proxy-hosts": {
+		"defaultMessage": "Erlaubte Proxy Hosts"
+	},
+	"permissions.allowed-proxy-hosts-help": {
+		"defaultMessage": "Gewährt zusätzlich Zugriff auf ausgewählte Proxy Hosts, die andere Benutzer erstellt haben (neben den eigenen Hosts des Benutzers)."
+	},
 	"permissions.hidden": {
 		"defaultMessage": "Versteckt"
 	},
 	"permissions.manage": {
 		"defaultMessage": "Verwalten"
+	},
+	"permissions.no-proxy-hosts": {
+		"defaultMessage": "Keine Proxy Hosts gefunden"
 	},
 	"permissions.view": {
 		"defaultMessage": "Nur anzeigen"
