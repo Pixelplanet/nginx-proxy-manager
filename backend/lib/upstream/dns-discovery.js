@@ -18,7 +18,7 @@ import {
  * container on a user-defined network.
  *
  * Verified on Docker 2x (see docs/src/advanced-config/upstream-discovery.md):
- * - containers:   PTR -> ["npmx-up-app.npmx-up-net"]
+ * - containers:   PTR -> ["app.mynet"]
  * - own address:  PTR -> [] (empty answer)
  * - gateway (.1): PTR is forwarded to the host's resolver and returns the host's own name,
  *                 so gateways are skipped and every hit is verified with a forward lookup.

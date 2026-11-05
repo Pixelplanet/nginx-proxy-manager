@@ -1,7 +1,7 @@
 # Fork-only workflow: builds the Nginx Proxy Manager image from this fork and publishes it to
 # GitHub Container Registry (ghcr.io/<owner>/nginx-proxy-manager). Not intended for upstream.
 #
-#   docker pull ghcr.io/pixelplanet/nginx-proxy-manager:ux-resilient-locations
+#   docker pull ghcr.io/<owner>/nginx-proxy-manager:ux-resilient-locations
 #
 # Tags: branch name (slashes -> dashes), sha-<short>, and "latest" for the default branch / version tags.
 name: Fork image

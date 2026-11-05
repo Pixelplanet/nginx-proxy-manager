@@ -47,16 +47,16 @@ describe("dns discovery", () => {
 	it("finds containers, skips self and gateway, verifies forward", async () => {
 		const resolver = fakeDockerDns({
 			ptr: {
-				"172.24.0.1": ["Ubuntu-2404-noble-amd64-base", "Ubuntu-2404-noble-amd64-base.local"],
-				"172.24.0.2": ["npmx-up-app.npmx-up-net."],
-				"172.24.0.3": ["npmx-up-db.npmx-up-net."],
+				"172.24.0.1": ["myhost", "myhost.local"],
+				"172.24.0.2": ["app.mynet."],
+				"172.24.0.3": ["db.mynet."],
 				"172.24.0.4": [],
 				// stale PTR: forward lookup points elsewhere -> ignored
-				"172.24.0.6": ["ghost.npmx-up-net."],
+				"172.24.0.6": ["ghost.mynet."],
 			},
 			forward: {
-				"npmx-up-app": ["172.24.0.2"],
-				"npmx-up-db": ["172.24.0.3"],
+				app: ["172.24.0.2"],
+				db: ["172.24.0.3"],
 				ghost: ["172.24.0.99"],
 				// the gateway's ".local" name doesn't resolve through embedded DNS
 			},
@@ -70,13 +70,13 @@ describe("dns discovery", () => {
 		assert.deepEqual(
 			result.items.map((i) => [i.host, i.network, i.ip, i.source]),
 			[
-				["npmx-up-app", "npmx-up-net", "172.24.0.2", "dns"],
-				["npmx-up-db", "npmx-up-net", "172.24.0.3", "dns"],
+				["app", "mynet", "172.24.0.2", "dns"],
+				["db", "mynet", "172.24.0.3", "dns"],
 			],
 		);
 		assert.equal(resolver.queried.includes("172.24.0.1"), false, "gateway skipped");
 		assert.equal(resolver.queried.includes("172.24.0.4"), false, "own IP skipped");
-		assert.equal(result.items[0].label, "npmx-up-app (on npmx-up-net)");
+		assert.equal(result.items[0].label, "app (on mynet)");
 		assert.deepEqual(result.items[0].ports, []);
 	});
 

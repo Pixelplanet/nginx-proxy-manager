@@ -16,7 +16,7 @@ import {
 
 describe("util: PTR name parsing (Docker embedded DNS)", () => {
 	it("drops the network label", () => {
-		assert.deepEqual(parsePtrName("npmx-up-app.npmx-up-net."), [{ host: "npmx-up-app", network: "npmx-up-net" }]);
+		assert.deepEqual(parsePtrName("app.mynet."), [{ host: "app", network: "mynet" }]);
 		assert.deepEqual(parsePtrName("myproj-web-1.myproj_default"), [
 			{ host: "myproj-web-1", network: "myproj_default" },
 		]);
@@ -30,7 +30,7 @@ describe("util: PTR name parsing (Docker embedded DNS)", () => {
 	});
 
 	it("ignores single-label and invalid answers", () => {
-		assert.deepEqual(parsePtrName("Ubuntu-2404-noble-amd64-base"), []);
+		assert.deepEqual(parsePtrName("myhost"), []);
 		assert.deepEqual(parsePtrName(""), []);
 		assert.deepEqual(parsePtrName("."), []);
 		assert.deepEqual(parsePtrName(null), []);
