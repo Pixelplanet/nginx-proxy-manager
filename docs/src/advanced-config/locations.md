@@ -30,6 +30,7 @@ NPM picks the mode for each location every time it writes the host's config:
 | Name that only the system resolver knows, for example through a search domain in `/etc/resolv.conf` | static |
 | Name that doesn't resolve at all | dynamic, with status **unresolved** |
 | A single nginx variable, for example `$backend` with `set $backend app;` in the advanced configuration | static, written as it is: nginx already resolves it per request |
+| Location whose forward path contains an nginx variable, for example `/api/$arg_id` or `$request_uri` | static, written as it is: nginx already resolves it per request (a name that doesn't resolve still shows **unresolved**) |
 | Location with a forward path whose advanced configuration reads `$uri` or `$document_uri` | static while the name resolves, see below |
 | `NPM_LOCATION_DYNAMIC_DNS=false`, or the resolver is disabled (`DISABLE_RESOLVER`) | static |
 
@@ -49,6 +50,16 @@ unknown name makes nginx reject the whole configuration), and `$uri` then holds 
 outside the location's advanced configuration, for example in the host's advanced configuration or a custom log
 format, are not detected: use `$request_uri` there, or set `NPM_LOCATION_DYNAMIC_DNS=false`.
 :::
+
+A forward path with an nginx variable is written into the config exactly as before too
+(`proxy_pass http://app:8080/api/$arg_id;`). nginx sends such a URI as it is: `/a/foo?id=42` on location `/a/` reaches
+the upstream as `/api/42`, without the rest of the path and without the query string. "Cache Assets" passes the same
+URI for assets, and doesn't add the nested asset location when the forward path uses a regex capture such as `$1`,
+because the nested location has captures of its own.
+
+The same applies to a regular-expression or named location with a forward path: nginx only accepts a URI there when
+it contains a variable, for example `~ ^/api/(.*)$` with forward path `/v1/$1`, which sends `/api/users/7` to the
+upstream as `/v1/users/7`. Such a location is written as it is.
 
 A forward host that is a single nginx variable, such as `$backend`, is written into the config exactly as before
 (`proxy_pass http://$backend:8080;`), without the extra lines. NPM doesn't check or monitor such an upstream, and
@@ -76,8 +87,13 @@ it in `meta.nginx_locations` of the proxy host:
 | --- | --- | --- |
 | `ok` | The location is active. | Proxies to the upstream. |
 | `unresolved` | The upstream name doesn't resolve right now, for example because the container is stopped. | Answers `502` for this location until the name resolves. The rest of the host works. |
-| `quarantined` | nginx rejected the location, or NPM knows it would. The message says why, for example an unknown directive in its advanced configuration, a forward path on a regular-expression location, or a forward path with spaces, quotes, `;`, `{`, `}`, `#` or `\` (nginx variables such as `$1` are fine). | Answers `503` for this path. If nginx rejects even that placeholder, for example because the path itself is invalid, the location is left out. |
+| `quarantined` | nginx rejected the location, or NPM knows it would. The message says why, for example an unknown directive in its advanced configuration, a forward path without an nginx variable on a regular-expression or named location (nginx rejects that URI; a capture such as `/v1/$1` or `$request_uri` works), or a forward path with spaces, quotes, `;`, `{`, `}`, `#` or `\` (nginx variables such as `$1` are fine). | Answers `503` for this path. If nginx rejects even that placeholder, for example because the path itself is invalid, the location is left out. |
 | `disabled` | You switched the location off. | The location isn't in the config. Requests fall through to the host's other locations. |
+
+Some nginx errors name no line, for example `unknown "x" variable` for a misspelled variable (nginx checks variables
+after reading all files). Then NPM replaces the host's custom locations with placeholders to find the one that causes
+it and quarantines only that one. If the error stays with every location replaced, it comes from the host itself and the
+save fails as described below.
 
 Fix the cause and save the host again to bring a quarantined location back. An unresolved location comes back by
 itself once the upstream name resolves.
@@ -203,6 +219,7 @@ settings in the form the way a save would, without saving anything:
   names used by another host
 - nginx checks the generated configuration (`nginx -t`). Nothing is written to the database, nginx is not
   reloaded and no other host is changed. A new host is checked under a temporary file name that is removed again.
+  A disabled host is checked as it would run once enabled; it stays disabled.
 - the forward host and every enabled custom location (proxy hosts), or the forwarding host (TCP streams), are
   checked for DNS and a TCP connection, like the live check next to the fields
 

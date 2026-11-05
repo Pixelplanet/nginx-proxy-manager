@@ -7,6 +7,7 @@ import { global as logger } from "../logger.js";
 import deadHostModel from "../models/dead_host.js";
 import proxyHostModel from "../models/proxy_host.js";
 import redirectionHostModel from "../models/redirection_host.js";
+import streamModel from "../models/stream.js";
 import internalNginx from "./nginx.js";
 
 const internalHost = {
@@ -217,6 +218,104 @@ const internalHost = {
 			throw err;
 		}
 	},
+
+	/**
+	 * For an update that asks for a new certificate (certificate_id "new"): checks that nginx accepts the rest of
+	 * the update before the certificate is requested. Otherwise the certificate would be issued, the update
+	 * rejected and rolled back, and the certificate left unused but renewed forever. Like create(), the check
+	 * runs with the host's current certificate; the SSL part is checked when the certificate is added.
+	 *
+	 * @param   {Object}   opts
+	 * @param   {Object}   opts.model
+	 * @param   {String}   opts.hostType       proxy_host, redirection_host, dead_host or stream
+	 * @param   {Object}   opts.row            the current row, with the relations nginx needs
+	 * @param   {Object}   opts.patch          the data the update will patch (without certificate_id)
+	 * @param   {Boolean}  [opts.skipDisabled] the update doesn't configure nginx for a disabled host either
+	 * @returns {Promise}  rejects with the error the update would have been rejected with
+	 */
+	checkProposedHost: async ({ model, hostType, row, patch, skipDisabled = false }) => {
+		const proposed = _.assign(
+			{},
+			row,
+			_.omit(patch, ["id", "certificate_id", "certificate", "owner", "access_list", "meta"]),
+		);
+		if (skipDisabled && !proposed.enabled) {
+			return;
+		}
+		await internalNginx.configure(model, hostType, proposed, { dryRun: true });
+	},
+
+	/**
+	 * After an update with a new certificate failed: removes that certificate when no host uses it, eg. when
+	 * nginx only rejected the update once the certificate was there and the row was rolled back. Never throws,
+	 * the update's own error is what the caller reports.
+	 *
+	 * @param   {Number}    certificateId
+	 * @param   {Function}  remove  async (): deletes (and revokes) the certificate
+	 * @returns {Promise<boolean>} true when the certificate was removed
+	 */
+	discardUnusedCertificate: async (certificateId, remove) => {
+		try {
+			for (const model of [proxyHostModel, redirectionHostModel, deadHostModel, streamModel]) {
+				const user = await model
+					.query()
+					.where("is_deleted", 0)
+					.andWhere("certificate_id", certificateId)
+					.first();
+				if (user) {
+					return false;
+				}
+			}
+			await remove();
+			logger.warn(`Removed certificate #${certificateId}: the update it was requested for was rejected`);
+			return true;
+		} catch (err) {
+			logger.warn(`Could not remove the unused certificate #${certificateId}: ${err.message}`);
+			return false;
+		}
+	},
+
+	/**
+	 * The state change of an enable or disable: re-reads the host, checks that the change is needed, patches
+	 * `enabled` and installs or removes the nginx config. All of it runs under the nginx lock, the same lock
+	 * updateAndConfigure() holds, so a rejected update can't put back an `enabled` value that a concurrent
+	 * enable or disable has written in between, and an enable always configures the latest row.
+	 *
+	 * When nginx rejects an enabled host and keeps the previous config, the host stays disabled. Any other
+	 * failure (eg. only the reload failed) leaves the new config file in place: then it stays enabled,
+	 * otherwise the next reload activates a host that the UI shows as disabled.
+	 *
+	 * @param   {Object}    opts
+	 * @param   {Object}    opts.model
+	 * @param   {String}    opts.hostType       proxy_host, redirection_host, dead_host or stream
+	 * @param   {Boolean}   opts.enable         true to enable, false to disable
+	 * @param   {Function}  opts.fetch          async () => row, loads the host with the relations nginx needs
+	 * @param   {String}    opts.alreadyMessage  error message when the host already has the requested state
+	 * @returns {Promise<Object>} the row as it was configured
+	 */
+	setEnabledAndConfigure: ({ model, hostType, enable, fetch, alreadyMessage }) =>
+		internalNginx.withLock(async () => {
+			const row = await fetch();
+			if (!!row.enabled === enable) {
+				throw new errs.ValidationError(alreadyMessage);
+			}
+			row.enabled = enable ? 1 : 0;
+			await model.query().where("id", row.id).patch({ enabled: row.enabled });
+
+			if (!enable) {
+				await internalNginx.removeConfigAndReload(hostType, row);
+				return row;
+			}
+			try {
+				await internalNginx.configure(model, hostType, row);
+			} catch (err) {
+				if (internalNginx.isHostLevelError(err)) {
+					await model.query().where("id", row.id).patch({ enabled: 0 });
+				}
+				throw err;
+			}
+			return row;
+		}),
 
 	/**
 	 * This returns all the host types with any domain listed in the provided domainNames array.

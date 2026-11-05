@@ -78,8 +78,14 @@ export const validateLocations = (items: ProxyLocation[] = []): (LocationErrors 
 		const host = `${item.forwardHost ?? ""}`.trim();
 		const hostPart = locationHostPart(host);
 		const pathPart = host.slice(hostPart.length);
+		// A disabled row is never rendered (the backend's preflightLocation() stops at `enabled: false`), so it only
+		// gets the checks the API itself makes for every row: required host, port range and duplicate paths.
+		// Switching it back on brings the format errors back.
+		const isEnabled = item.enabled !== false;
 		if (!hostPart) {
 			errors.forwardHost = intl.formatMessage({ id: "error.required" });
+		} else if (!isEnabled) {
+			// no format checks
 		} else if (/\s/.test(hostPart)) {
 			errors.forwardHost = intl.formatMessage({ id: "location.error.host-whitespace" });
 		} else if (!isVariableHost(hostPart) && INVALID_HOST_CHARS.test(hostPart)) {
@@ -147,6 +153,10 @@ export function LocationsFields({ initialValues, name = "locations", statuses, h
 	const [advVisible, setAdvVisible] = useState<number[]>([]);
 	const [touched, setTouched] = useState<string[]>([]);
 	const [filter, setFilter] = useState("");
+	// The rows as last changed: one event can make several changes before the next render (picking a container
+	// sets the host, then its port and scheme), and each change has to build on the one before
+	const latestRows = useRef(rows);
+	latestRows.current = rows;
 	const nextId = useRef(rows.length);
 	const scrollToId = useRef<number | null>(null);
 
@@ -212,6 +222,12 @@ export function LocationsFields({ initialValues, name = "locations", statuses, h
 		setAdvVisible(advVisible.includes(id) ? advVisible.filter((i) => i !== id) : [...advVisible, id]);
 	};
 
+	const updateRows = (newRows: Row[]) => {
+		latestRows.current = newRows;
+		setRows(newRows);
+		setFormField(newRows);
+	};
+
 	const setFormField = (newRows: Row[]) => {
 		// Blank rows are kept here so array indexes match the rows (the access
 		// list field relies on that); the modal drops them when saving.
@@ -223,9 +239,7 @@ export function LocationsFields({ initialValues, name = "locations", statuses, h
 
 	const handleAdd = () => {
 		const id = nextId.current++;
-		const newRows = [...rows, { id, value: blankItem }];
-		setRows(newRows);
-		setFormField(newRows);
+		updateRows([...latestRows.current, { id, value: blankItem }]);
 		// A new location starts empty, so open it and make sure an active filter
 		// doesn't hide the row that was just added.
 		setExpanded([...expanded, id]);
@@ -234,17 +248,13 @@ export function LocationsFields({ initialValues, name = "locations", statuses, h
 	};
 
 	const handleRemove = (id: number) => {
-		const newRows = rows.filter((r: Row) => r.id !== id);
-		setRows(newRows);
+		updateRows(latestRows.current.filter((r: Row) => r.id !== id));
 		setExpanded(expanded.filter((i) => i !== id));
 		setAdvVisible(advVisible.filter((i) => i !== id));
-		setFormField(newRows);
 	};
 
 	const handleChanges = (id: number, changes: Partial<ProxyLocation>) => {
-		const newRows = rows.map((r: Row) => (r.id === id ? { ...r, value: { ...r.value, ...changes } } : r));
-		setRows(newRows);
-		setFormField(newRows);
+		updateRows(latestRows.current.map((r: Row) => (r.id === id ? { ...r, value: { ...r.value, ...changes } } : r)));
 	};
 
 	const markTouched = (id: number, field: keyof LocationErrors) => {

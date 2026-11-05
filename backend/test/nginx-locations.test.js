@@ -6,6 +6,7 @@ import {
 	describeConfigLine,
 	escapeRegex,
 	findDuplicatePath,
+	hasVariablePath,
 	isVariableHost,
 	MESSAGES,
 	normaliseLocationPath,
@@ -136,9 +137,28 @@ describe("preflightLocation", () => {
 		assert.equal(preflightLocation(prepareLocation({ ...base, path: "/a", enabled: false })).status, "disabled");
 	});
 
-	it("quarantines regex locations with a forward path", () => {
+	it("quarantines regex and named locations with a literal forward path, nginx -t rejects that URI", () => {
 		const res = preflightLocation(prepareLocation({ ...base, path: "~ ^/x", forward_path: "/y" }));
 		assert.deepEqual(res, { status: "quarantined", message: MESSAGES.regexWithForwardPath });
+		assert.deepEqual(preflightLocation(prepareLocation({ ...base, path: "~* ^/x", forward_host: "app/v1/" })), {
+			status: "quarantined",
+			message: MESSAGES.regexWithForwardPath,
+		});
+		assert.deepEqual(preflightLocation(prepareLocation({ ...base, path: "@fb", forward_path: "/y" })), {
+			status: "quarantined",
+			message: MESSAGES.namedWithForwardPath,
+		});
+	});
+
+	it("allows regex and named locations whose forward path has a variable, like before", () => {
+		for (const loc of [
+			{ path: "~ ^/api/(.*)$", forward_path: "/v1/$1" },
+			{ path: "~* ^/a/(?<rest>.*)$", forward_path: "/$" + "{rest}" },
+			{ path: "~ ^/b/", forward_host: "app/v1$request_uri" },
+			{ path: "@fb", forward_path: "/p/$request_uri" },
+		]) {
+			assert.equal(preflightLocation(prepareLocation({ ...base, ...loc })), null, JSON.stringify(loc));
+		}
 	});
 
 	it("quarantines invalid host names", () => {
@@ -294,6 +314,12 @@ describe("renderLocation", () => {
 			assert.doesNotMatch(out, /\$server/);
 			const nested = out.slice(out.indexOf("location ~*"));
 			assert.match(nested, /proxy_cache public-cache;/);
+			// keyed by the forwarded Host with the client's port, like conf.d/include/assets.conf
+			assert.match(nested, /proxy_cache_key \$forward_host\$request_uri;/);
+			assert.doesNotMatch(out, /proxy_cache_key \$host/);
+			// the nested location sets no headers of its own, so it inherits the parent's Host $forward_host
+			assert.match(out.slice(0, out.indexOf("location ~*")), /proxy_set_header Host \$forward_host;/);
+			assert.doesNotMatch(nested, /proxy_set_header/);
 			assert.match(nested, /rewrite "\(\?s\)\^\\\/a\(\.\*\)\$" \/x\$1 break;/);
 			assert.match(nested, /proxy_redirect http:\/\/app:8080\/x \/a;/);
 			if (mode === "dynamic") {
@@ -321,6 +347,57 @@ describe("renderLocation", () => {
 		assert.doesNotMatch(out, /rewrite|npm_loc_0_host|proxy_redirect/);
 		// a nested location would not run the parent's `set $backend`
 		assert.doesNotMatch(out, /location ~\*/);
+	});
+
+	it("renders a forward path with an nginx variable without rewrite, like before", async () => {
+		const loc = { ...base, path: "/a/", forward_path: "/api/$arg_id" };
+		const mode = chooseLocationMode(prepareLocation(loc), { mode: "dynamic", status: "ok" });
+		const out = await render(loc, mode);
+		assert.match(out, /proxy_pass\s+http:\/\/app:8080\/api\/\$arg_id;/);
+		assert.doesNotMatch(out, /rewrite|npm_loc_0_host|proxy_redirect/);
+	});
+
+	it("passes a variable forward path to the nested asset location as it is", async () => {
+		const loc = { ...base, path: "/a/", forward_path: "/api/$arg_id" };
+		const out = await render(loc, { mode: "static" }, { caching_enabled: true });
+		const nested = out.slice(out.indexOf("location ~*"));
+		assert.match(nested, /proxy_pass http:\/\/app:8080\/api\/\$arg_id;/);
+		// "proxy_redirect default" is not allowed with variables, the parent has none either
+		assert.match(nested, /proxy_redirect off;/);
+		assert.doesNotMatch(nested, /rewrite/);
+	});
+
+	it("does not nest the asset cache when the forward path uses a capture, the nested regex replaces it", async () => {
+		for (const forward_path of ["/v/$1", "/v/$" + "{2}"]) {
+			const out = await render({ ...base, path: "/a/", forward_path }, { mode: "static" }, { caching_enabled: true });
+			assert.doesNotMatch(out, /location ~\*/, forward_path);
+		}
+	});
+
+	it("keeps the rendering of a literal forward path", async () => {
+		const out = await render({ ...base, path: "/a", forward_path: "/x" }, { mode: "dynamic" }, { caching_enabled: true });
+		const nested = out.slice(out.indexOf("location ~*"));
+		assert.match(nested, /proxy_pass http:\/\/\$npm_loc_0_host:8080;/);
+		assert.match(nested, /proxy_redirect http:\/\/app:8080\/x \/a;/);
+	});
+
+	it("renders a regex location with captures in the forward path literally, in either mode", async () => {
+		const loc = { ...base, path: "~ ^/api/(.*)$", forward_path: "/v1/$1" };
+		const mode = chooseLocationMode(prepareLocation(loc), { mode: "dynamic", status: "ok" });
+		assert.deepEqual(mode, { mode: "static", status: "ok" });
+		const out = await render(loc, mode, { caching_enabled: true });
+		assert.match(out, /location ~ \^\/api\/\(\.\*\)\$ \{/);
+		assert.match(out, /proxy_pass\s+http:\/\/app:8080\/v1\/\$1;/);
+		// no rewrite or set (they would not change $1, but are not needed), no nested location overwriting $1
+		assert.doesNotMatch(out, /rewrite|npm_loc_0_host|proxy_redirect|location ~\*/);
+	});
+
+	it("renders a named location with a variable forward path literally", async () => {
+		const loc = { ...base, path: "@fb", forward_path: "/p$request_uri" };
+		const out = await render(loc, chooseLocationMode(prepareLocation(loc), { mode: "dynamic", status: "ok" }));
+		assert.match(out, /location @fb \{/);
+		assert.match(out, /proxy_pass\s+http:\/\/app:8080\/p\$request_uri;/);
+		assert.doesNotMatch(out, /rewrite|npm_loc_0_host/);
 	});
 
 	it("does not nest the asset cache in exact or named locations", async () => {
@@ -429,5 +506,21 @@ describe("chooseLocationMode", () => {
 	it("stays dynamic when the host does not resolve, a literal unknown host fails nginx -t", () => {
 		const unresolved = { mode: "dynamic", status: "unresolved" };
 		assert.deepEqual(chooseLocationMode(loc({ advanced_config: "add_header X $uri;" }), unresolved), unresolved);
+	});
+
+	it("renders a forward path with an nginx variable literally, nginx sends that URI as it is", () => {
+		for (const forward_path of ["/api/$arg_id", "/api/$" + "{arg_id}/x", "$request_uri", "/v/$1"]) {
+			const l = loc({ forward_path });
+			assert.equal(hasVariablePath(l), true, forward_path);
+			assert.deepEqual(chooseLocationMode(l, dynamicOk), { mode: "static", status: "ok" }, forward_path);
+			// nginx resolves a proxy_pass with variables per request, the warning stays
+			assert.deepEqual(chooseLocationMode(l, { mode: "dynamic", status: "unresolved" }), {
+				mode: "static",
+				status: "unresolved",
+			});
+			assert.deepEqual(chooseLocationMode(l, { mode: "static", status: "ok" }), { mode: "static", status: "ok" });
+		}
+		assert.equal(hasVariablePath(loc({ forward_path: "/x/" })), false);
+		assert.equal(hasVariablePath(loc({ forward_path: "" })), false);
 	});
 });

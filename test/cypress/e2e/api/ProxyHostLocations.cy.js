@@ -16,7 +16,7 @@ describe('Proxy Host custom location resilience', () => {
 	 * @param {string}  path
 	 */
 	const request = (path) => {
-		return cy.task('exec', { command: `curl --noproxy '*' -s -w '\n%{http_code}' -H 'Host: ${domain}' http://fullstack${path}` })
+		return cy.task('exec', { command: `curl --noproxy '*' -s -w '\n%{http_code}' -H 'Host: ${domain}' http://fullstack${path}` }, { log: false })
 			.then((result) => {
 				expect(result.exitCode).to.eq(0);
 				const lines = result.stdout.trim().split('\n');
@@ -236,6 +236,59 @@ describe('Proxy Host custom location resilience', () => {
 			const domains = data.flatMap((host) => host.domain_names);
 			expect(domains).to.not.include('rejected-locations.example.com');
 		});
+	});
+
+	it('Should pass a forward path with an nginx variable as it is', () => {
+		cy.task('backendApiPut', {
+			token: token,
+			path:  `/api/nginx/proxy-hosts/${hostId}`,
+			data:  {
+				locations: [location('/q/', 'examplesite', { forward_path: '/$arg_page' })],
+			},
+		}).then((data) => {
+			cy.validateSwaggerSchema('put', 200, '/nginx/proxy-hosts/{hostID}', data);
+			expect(data.meta.nginx_locations[0]).to.include({ index: 0, status: 'ok', mode: 'static' });
+		});
+
+		// /q/anything?page=dashboard reaches examplesite as /dashboard: no rest of the path, no query string
+		expectPage('/q/anything?page=dashboard', 'this is the dashboard page');
+	});
+
+	it('Should keep a regex location whose forward path uses a capture', () => {
+		cy.task('backendApiPut', {
+			token: token,
+			path:  `/api/nginx/proxy-hosts/${hostId}`,
+			data:  {
+				locations: [location('~ ^/cap/(.*)$', 'examplesite', { forward_path: '/$1' })],
+			},
+		}).then((data) => {
+			cy.validateSwaggerSchema('put', 200, '/nginx/proxy-hosts/{hostID}', data);
+			expect(data.meta.nginx_locations[0]).to.include({ index: 0, status: 'ok', mode: 'static' });
+		});
+
+		expectPage('/cap/dashboard', 'this is the dashboard page');
+	});
+
+	it('Should quarantine a location that uses an unknown variable, not the host', () => {
+		cy.task('backendApiPut', {
+			token: token,
+			path:  `/api/nginx/proxy-hosts/${hostId}`,
+			data:  {
+				locations: [
+					location('/dash', 'examplesite', { forward_path: '/dashboard' }),
+					location('/typo', 'examplesite', { advanced_config: 'proxy_set_header X-Test $missing_variable;' }),
+				],
+			},
+		}).then((data) => {
+			cy.validateSwaggerSchema('put', 200, '/nginx/proxy-hosts/{hostID}', data);
+			expect(data.meta).to.have.property('nginx_online', true);
+			expect(data.meta.nginx_locations[0]).to.include({ index: 0, status: 'ok' });
+			expect(data.meta.nginx_locations[1]).to.include({ index: 1, status: 'quarantined', mode: null });
+			expect(data.meta.nginx_locations[1].message).to.contain('unknown variable "$missing_variable"');
+		});
+
+		expectPage('/dash', 'this is the dashboard page');
+		expectStatus('/typo', '503');
 	});
 
 	it('Should delete the host', () => {

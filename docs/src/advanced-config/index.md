@@ -204,6 +204,11 @@ blocking the others, just as when you save the host. Afterwards the page lists t
 that could not be regenerated (they keep their previous config, eg. because a certificate file is missing) and the
 hosts that are online but reported a warning. Click a host to open it.
 
+NPM only rewrites a host's config file when the host is saved. Fixes to the config templates in a newer NPM version,
+for example the per-host HSTS sub-domains setting, therefore reach hosts that were saved with an older version only
+when their file is rewritten. Run a regeneration once after upgrading to apply such template fixes to all existing
+hosts.
+
 The same is available from the API (`POST /api/nginx/regenerate`, optional body `{"host_types": ["proxy_host"]}`) and
 from the command line inside the container:
 
@@ -212,7 +217,9 @@ docker exec -it <container> /app/scripts/regenerate-config --yes
 ```
 
 Only one regeneration runs at a time, a second request gets `409 Conflict`. Each run is recorded in the audit log,
-also a run that failed half way (eg. nginx could not be reloaded), with the error. The list of offline hosts also
+also a run that failed half way (eg. nginx could not be reloaded), with the error. Such a run may have rewritten hosts
+or taken them offline already: the page shows these hosts below the error, and the API sends them as
+`error.regenerate_summary` (same fields as a successful response). The list of offline hosts also
 contains hosts that the final nginx test took offline, even of host types that were not selected.
 
 The command line script runs outside the backend and does not share its lock, so prefer the UI or the API while NPM

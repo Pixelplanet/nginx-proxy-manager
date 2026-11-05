@@ -41,13 +41,21 @@ const INVALID_PATH_CHARS = /[\s;{}'"`\\#]/;
 // no DNS check, no rewrite.
 const VARIABLE_HOST = /^\$[A-Za-z_][A-Za-z0-9_]*$/;
 
+// A `$` in the forward path makes nginx treat `proxy_pass` as a script: the computed URI is sent as it is (no
+// location prefix replaced, no query string added, no implicit "proxy_redirect default"), see hasVariablePath()
+const VARIABLE_IN_PATH = /\$/;
+
+// A capture reference ($1, ${2}) in the forward path, which a nested regex location would overwrite
+const CAPTURE_IN_PATH = /\$\{?[0-9]/;
+
 // Variables whose value changes when the dynamic rendering rewrites the URI, see chooseLocationMode()
 const URI_VARIABLES = /\$(uri|document_uri)(?![A-Za-z0-9_])|\$\{(uri|document_uri)\}/;
 
 const MESSAGES = {
 	regexWithForwardPath:
-		"A forward path can't be used with a regular-expression location; remove the forward path or use a prefix location.",
-	namedWithForwardPath: "A forward path can't be used with a named location; remove the forward path.",
+		"A forward path without an nginx variable can't be used with a regular-expression location; use a capture such as /v1/$1, remove the forward path or use a prefix location.",
+	namedWithForwardPath:
+		"A forward path without an nginx variable can't be used with a named location; use a variable such as $request_uri or remove the forward path.",
 	invalidHost:
 		"The forward host contains characters that are not allowed (spaces, quotes, ; { } $ # or \\). A single nginx variable such as $backend is allowed.",
 	emptyHost: "The forward host is empty.",
@@ -180,6 +188,17 @@ const bracesBalanced = (text) => {
 const isVariableHost = (host) => VARIABLE_HOST.test(`${host || ""}`.trim());
 
 /**
+ * nginx compiles a `proxy_pass` that contains a variable anywhere as a script and resolves its host per request:
+ * `proxy_pass http://app:80/api/$arg_id;` sends exactly `/api/<id>` (no remaining path, no query string), and
+ * `$1` refers to the location's own regex captures. A rewrite in front of it would change that, so such a
+ * location is always rendered literally, see chooseLocationMode().
+ *
+ * @param   {Object} loc  a prepared location
+ * @returns {boolean} true when the forward path contains an nginx variable, eg. `/api/$arg_id`
+ */
+const hasVariablePath = (loc) => VARIABLE_IN_PATH.test(`${loc.forward_path || ""}`);
+
+/**
  * Problems that are known before nginx is asked.
  *
  * @param   {Object} loc  a prepared location
@@ -206,10 +225,13 @@ const preflightLocation = (loc) => {
 	if (!bracesBalanced(loc.advanced_config)) {
 		return { status: "quarantined", message: MESSAGES.unbalancedBraces };
 	}
-	if (loc.forward_path && parsed.isRegex) {
+	// nginx -t rejects a URI in the proxy_pass of a regex or named location ("cannot have URI part"), but not
+	// when the proxy_pass has a variable: `location ~ ^/api/(.*)$` with forward path `/v1/$1` has always worked.
+	// Such a location is rendered literally, see chooseLocationMode().
+	if (loc.forward_path && !hasVariablePath(loc) && parsed.isRegex) {
 		return { status: "quarantined", message: MESSAGES.regexWithForwardPath };
 	}
-	if (loc.forward_path && parsed.isNamed) {
+	if (loc.forward_path && !hasVariablePath(loc) && parsed.isNamed) {
 		return { status: "quarantined", message: MESSAGES.namedWithForwardPath };
 	}
 	return null;
@@ -229,13 +251,17 @@ const hasDirective = (advancedConfig, directive) =>
  */
 const rewritesUri = (loc) => {
 	const parsed = parseLocationPath(loc.path);
-	return !!loc.forward_path && !parsed.isRegex && !parsed.isNamed;
+	return !!loc.forward_path && !parsed.isRegex && !parsed.isNamed && !hasVariablePath(loc);
 };
 
 /**
  * The final mode of a location, from what the DNS check (lib/upstream-dns.js) found:
  *
  * - a forward host that is an nginx variable is always static (rendered literally, as it always was)
+ * - so is a forward path with an nginx variable (`/api/$arg_id`): nginx sends that URI as it is and already
+ *   resolves the host per request, because the proxy_pass has a variable (an unknown host doesn't fail
+ *   `nginx -t`). The rewrite of the dynamic rendering would append the rest of the path and the query string.
+ *   A host that doesn't resolve keeps the status "unresolved" (502 until it resolves).
  * - with a forward path the dynamic rendering replaces the location prefix through `rewrite ... break`,
  *   which changes $uri and $document_uri for everything that runs later (proxy_set_header, add_header,
  *   try_files, ...). A location whose advanced config reads one of them stays static while its host
@@ -249,6 +275,9 @@ const rewritesUri = (loc) => {
 const chooseLocationMode = (loc, resolved) => {
 	if (isVariableHost(loc.forward_host)) {
 		return { mode: "static", status: "ok" };
+	}
+	if (hasVariablePath(loc)) {
+		return { mode: "static", status: resolved.status === "unresolved" ? "unresolved" : "ok" };
 	}
 	if (
 		resolved.mode === "dynamic" &&
@@ -281,7 +310,11 @@ const buildLocationContext = (loc, state) => {
 	const redirect = canRewrite ? `${upstreamBase}${fp} ${parsed.uri}` : `${upstreamBase}/ /`;
 	// nginx does not allow nested locations in exact match and named locations. A nested location doesn't
 	// run the parent's `set`, so a variable upstream set in the advanced config would be empty there.
-	const assetsAllowed = !parsed.isExact && !parsed.isNamed && !isVariableHost(loc.forward_host);
+	// A variable forward path goes into the nested location's proxy_pass as it is (no rewrite); one with a
+	// capture ($1) can't, the nested regex location replaces the captures with its own.
+	const variablePath = hasVariablePath(loc);
+	const assetsAllowed =
+		!parsed.isExact && !parsed.isNamed && !isVariableHost(loc.forward_host) && !CAPTURE_IN_PATH.test(fp);
 
 	return Object.assign({}, loc, {
 		forward_path: fp,
@@ -296,7 +329,9 @@ const buildLocationContext = (loc, state) => {
 		npm_redirect: dynamic && !hasDirective(loc.advanced_config, "proxy_redirect") ? redirect : "",
 		npm_assets: assetsAllowed && (loc.caching_enabled === 1 || loc.caching_enabled === true),
 		npm_asset_rewrite: rewrite,
-		npm_asset_redirect: redirect,
+		npm_asset_uri: variablePath ? fp : "",
+		// like the parent: a proxy_pass with variables has no implicit "proxy_redirect default"
+		npm_asset_redirect: variablePath ? "off" : redirect,
 	});
 };
 
@@ -326,6 +361,50 @@ const renderLocation = async (engine, template, loc, state) => {
 
 	const rendered = await engine.parseAndRender(template, buildLocationContext(loc, state));
 	return `  ${begin}\n${rendered.replace(/\s+$/, "")}\n  ${end}\n`;
+};
+
+/**
+ * Finds the custom locations behind an `nginx -t` error that names no line, eg. `unknown "x" variable`
+ * (nginx checks variables after parsing the files and doesn't say where they are used). The candidates are
+ * replaced by `return 503;` stubs, which contain nothing of the user's input:
+ *
+ * - still the same error with all of them stubbed: not caused by a location, null
+ * - otherwise each candidate is rendered alone, with all the others still stubbed: every one that brings the
+ *   same error back fails on its own and is returned (two broken locations with the same message are both
+ *   found, a working one is never blamed for them)
+ * - none fails alone (eg. two locations only fail together): each candidate is stubbed alone, the first one
+ *   that makes the error go away (or change) is returned
+ * - none of that: all candidates
+ *
+ * @param   {Object}   opts
+ * @param   {Number[]} opts.candidates     indexes of the locations that are rendered (ok / unresolved)
+ * @param   {Object}   opts.parsed         the parsed error
+ * @param   {Function} opts.testWithStubs  async (indexes) => {ok, parsed}: nginx -t with those locations stubbed
+ * @returns {Promise<Number[]|null>} the indexes to quarantine
+ */
+const isolateFaultyLocations = async ({ candidates, parsed, testWithStubs }) => {
+	const sameError = (result) => !result.ok && result.parsed?.message === parsed.message;
+	if (!candidates.length || sameError(await testWithStubs(candidates))) {
+		return null;
+	}
+	if (candidates.length === 1) {
+		return candidates;
+	}
+	const failAlone = [];
+	for (const index of candidates) {
+		if (sameError(await testWithStubs(candidates.filter((i) => i !== index)))) {
+			failAlone.push(index);
+		}
+	}
+	if (failAlone.length) {
+		return failAlone;
+	}
+	for (const index of candidates) {
+		if (!sameError(await testWithStubs([index]))) {
+			return [index];
+		}
+	}
+	return candidates;
 };
 
 /**
@@ -423,6 +502,8 @@ export {
 	escapeRegex,
 	findDuplicatePath,
 	hasDirective,
+	hasVariablePath,
+	isolateFaultyLocations,
 	isVariableHost,
 	normaliseLocationPath,
 	parseLocationPath,

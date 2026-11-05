@@ -15,7 +15,7 @@ const backendDir = path.resolve(process.argv[2] || "../../backend");
 const here = path.dirname(new URL(import.meta.url).pathname);
 const cases = JSON.parse(fs.readFileSync(path.join(here, "cases.json"), "utf8"));
 
-const { chooseLocationMode, prepareLocation, readLocationTemplate, renderLocation } = await import(
+const { chooseLocationMode, preflightLocation, prepareLocation, readLocationTemplate, renderLocation } = await import(
 	pathToFileURL(path.join(backendDir, "lib/nginx-locations.js")).href
 );
 const { default: utils } = await import(pathToFileURL(path.join(backendDir, "lib/utils.js")).href);
@@ -59,6 +59,12 @@ const render = async (mode) => {
 	for (let i = 0; i < cases.length; i++) {
 		const c = cases[i];
 		const loc = Object.assign({}, hostFields(c), prepareLocation(location(c)));
+		// what the backend checks before nginx is asked: a location it quarantines answers 503 here
+		const problem = preflightLocation(loc);
+		if (problem) {
+			out += await renderLocation(engine, template, loc, { index: i, ...problem, mode: null, stub: true });
+			continue;
+		}
 		// the mode the backend picks when the DNS check asks for `mode` (variable hosts, $uri readers)
 		const chosen = chooseLocationMode(loc, { mode, status: "ok" }).mode;
 		out += await renderLocation(engine, template, loc, { index: i, status: "ok", mode: chosen, stub: true });
@@ -75,7 +81,7 @@ const legacy = () => {
 		const loc = prepareLocation(location(c));
 		out += `  location ${c.path} {
     ${c.adv || ""}
-    proxy_set_header Host $host;
+    proxy_set_header Host $forward_host;
     proxy_set_header X-Forwarded-Scheme $scheme;
     proxy_set_header X-Forwarded-Proto  $scheme;
     proxy_set_header X-Forwarded-For    $remote_addr;
@@ -102,6 +108,11 @@ http {
   access_log off;
   resolver 127.0.0.11 valid=10s;
   port_in_redirect off;
+  # as in docker/rootfs/etc/nginx/nginx.conf: the Host the client sent, with its port
+  map $http_host $forward_host {
+    default $http_host;
+    "" $host;
+  }
   proxy_cache_path /tmp/nginx-sem-cache levels=1:2 keys_zone=public-cache:5m max_size=64m;
   server {
     listen 8001;

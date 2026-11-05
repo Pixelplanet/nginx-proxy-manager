@@ -57,6 +57,7 @@ interface ApiErrorOptions {
 	code?: number;
 	messageI18n?: string;
 	details?: ApiErrorDetails;
+	regenerateSummary?: Record<string, any>;
 }
 
 /**
@@ -76,14 +77,20 @@ export class ApiError extends Error {
 	readonly messageI18n?: string;
 	/** `error.details` from the payload (camelized), if any */
 	readonly details?: ApiErrorDetails;
+	/**
+	 * `error.regenerate_summary` from the payload (camelized), if any: what a
+	 * regeneration of all host configs did before it failed
+	 */
+	readonly regenerateSummary?: Record<string, any>;
 
-	constructor(message: string, { status, code, messageI18n, details }: ApiErrorOptions) {
+	constructor(message: string, { status, code, messageI18n, details, regenerateSummary }: ApiErrorOptions) {
 		super(message);
 		this.name = "ApiError";
 		this.status = status;
 		this.code = typeof code === "number" ? code : status;
 		this.messageI18n = messageI18n;
 		this.details = details;
+		this.regenerateSummary = regenerateSummary;
 	}
 }
 
@@ -98,10 +105,14 @@ export function buildApiError(response: Pick<Response, "status" | "statusText">,
 	const error = payload && typeof payload === "object" ? payload.error : undefined;
 	const hasError = !!error && typeof error === "object";
 	const statusText = response.statusText ? ` ${response.statusText}` : "";
+	// Same precedence as before ApiError existed: a raw camelCase `messageI18n`
+	// wins over `message`, so callers that throw translated keys keep working.
 	const message =
-		hasError && typeof error.message === "string" && error.message !== ""
-			? error.message
-			: `Request failed: ${response.status}${statusText}`;
+		hasError && typeof error.messageI18n === "string" && error.messageI18n !== ""
+			? error.messageI18n
+			: hasError && typeof error.message === "string" && error.message !== ""
+				? error.message
+				: `Request failed: ${response.status}${statusText}`;
 	const messageI18n =
 		hasError && typeof error.message_i18n === "string" && error.message_i18n !== ""
 			? error.message_i18n
@@ -110,11 +121,16 @@ export function buildApiError(response: Pick<Response, "status" | "statusText">,
 		hasError && error.details && typeof error.details === "object"
 			? (camelizeKeys(error.details) as ApiErrorDetails)
 			: undefined;
+	const regenerateSummary =
+		hasError && error.regenerate_summary && typeof error.regenerate_summary === "object"
+			? (camelizeKeys(error.regenerate_summary) as Record<string, any>)
+			: undefined;
 	return new ApiError(message, {
 		status: response.status,
 		code: hasError && typeof error.code === "number" ? error.code : undefined,
 		messageI18n,
 		details,
+		regenerateSummary,
 	});
 }
 
@@ -134,7 +150,7 @@ async function readPayload(response: Response): Promise<any> {
 	}
 }
 
-export async function processResponse(response: Response) {
+export async function processResponse(response: Response, preserveResponseKeys = false) {
 	const payload = await readPayload(response);
 	if (!response.ok) {
 		if (response.status === 401) {
@@ -145,7 +161,7 @@ export async function processResponse(response: Response) {
 		}
 		throw buildApiError(response, payload);
 	}
-	return camelizeKeys(payload) as any;
+	return (preserveResponseKeys ? payload : camelizeKeys(payload)) as any;
 }
 
 interface GetArgs {
@@ -183,9 +199,10 @@ interface PostArgs {
 	params?: queryString.StringifiableRecord;
 	data?: any;
 	noAuth?: boolean;
+	preserveResponseKeys?: boolean;
 }
 
-export async function post({ url, params, data, noAuth }: PostArgs, abortController?: AbortController) {
+export async function post({ url, params, data, noAuth, preserveResponseKeys }: PostArgs, abortController?: AbortController) {
 	const apiUrl = buildUrl({ url, params });
 	const method = "POST";
 
@@ -212,7 +229,7 @@ export async function post({ url, params, data, noAuth }: PostArgs, abortControl
 
 	const signal = abortController?.signal;
 	const response = await fetch(apiUrl, { method, headers, body, signal });
-	return processResponse(response);
+	return processResponse(response, preserveResponseKeys);
 }
 
 interface PutArgs {
