@@ -38,6 +38,7 @@ import {
 	readLocationTemplate,
 	renderLocation,
 } from "../lib/nginx-locations.js";
+import { createReloadWaiter } from "../lib/nginx-reload.js";
 import { createModeResolver, toBool } from "../lib/upstream-dns.js";
 import utils from "../lib/utils.js";
 import { debug, nginx as logger } from "../logger.js";
@@ -92,7 +93,75 @@ const RECONCILE_RETRY_DELAYS = [30 * 1000, 2 * 60 * 1000, 5 * 60 * 1000];
  * otherwise concurrent saves test and rename each other's files. Re-entrant: code that already
  * holds the lock runs directly. Timers started inside the lock must use runOutsideLock, see lib/nginx-lock.js.
  */
-const { withLock, runOutsideLock } = createLock();
+const { withLock: withRawLock, runOutsideLock, isHeld } = createLock();
+
+/**
+ * Set when a reload was signalled but not confirmed (see reloadNginx()): the master may still be reading the
+ * config, or it rejected it. Files changed after that (candidates, rollbacks) may then be what nginx applies.
+ */
+let reloadInDoubt = false;
+
+/**
+ * Set when the extra reload of settleReload() was not confirmed either: nginx doesn't apply the config at all
+ * (eg. a listen port in use, which nginx -t doesn't catch). Until a reload is confirmed again, an unconfirmed
+ * reload is not settled, otherwise every later save would wait for nginx twice.
+ */
+let reloadFailing = false;
+
+/**
+ * At the end of a locked section, after a reload that was not confirmed: reloads once more, now that every
+ * candidate file is gone and every rollback is done, so the files on disk are what nginx runs.
+ * Never throws, the section's own result is what the caller gets.
+ *
+ * @returns {Promise}
+ */
+const settleReload = async () => {
+	if (!reloadInDoubt) {
+		return;
+	}
+	// Only one more attempt: when this one isn't confirmed either, nginx fails to apply the config (eg. a listen
+	// port in use, which nginx -t doesn't catch), and every section would wait for it again. reloadFailing then
+	// keeps the next sections from settling until a reload is confirmed again.
+	reloadInDoubt = false;
+	try {
+		const result = await internalNginx.runTest();
+		if (!result.ok) {
+			logger.error(`nginx reload not confirmed and the config fails the test: ${result.parsed?.message}`);
+			return;
+		}
+		logger.warn("nginx reload not confirmed, reloading again");
+		const outcome = await internalNginx.reloadWaiter.reloadAndWait();
+		if (outcome.confirmed) {
+			reloadFailing = false;
+		} else {
+			reloadFailing = true;
+			logger.error(
+				`nginx did not confirm the reload either (${outcome.reason}). The running config may be older than the config files, see /data/logs/fallback_error.log`,
+			);
+		}
+	} catch (err) {
+		logger.error(`Could not reload nginx again: ${err.message}`);
+	}
+};
+
+/**
+ * withRawLock() that settles a reload in doubt before the lock is released, see settleReload()
+ *
+ * @param   {Function} fn
+ * @returns {Promise}
+ */
+const withLock = (fn) => {
+	if (isHeld()) {
+		return fn();
+	}
+	return withRawLock(async () => {
+		try {
+			return await fn();
+		} finally {
+			await settleReload();
+		}
+	});
+};
 
 const readFileOrNull = (filename) => {
 	try {
@@ -159,6 +228,14 @@ const internalNginx = {
 	 * @returns {Promise}
 	 */
 	withLock: withLock,
+
+	/**
+	 * Signals reloads and waits until nginx has applied them, see lib/nginx-reload.js
+	 */
+	reloadWaiter: createReloadWaiter({
+		signal: () => utils.execFile("/usr/sbin/nginx", ["-s", "reload"]),
+		errorLog: "/data/logs/fallback_error.log",
+	}),
 
 	/**
 	 * Removes the server-owned meta keys from incoming data, in place.
@@ -1244,7 +1321,25 @@ const internalNginx = {
 			await internalNginx.testAndHeal();
 		}
 		logger.info("Reloading Nginx");
-		return utils.execFile("/usr/sbin/nginx", ["-s", "reload"]);
+		// Waits until the master has applied the config: only then may the lock be released, see
+		// lib/nginx-reload.js
+		const outcome = await internalNginx.reloadWaiter.reloadAndWait();
+		if (outcome.confirmed) {
+			reloadInDoubt = false;
+			reloadFailing = false;
+			debug(logger, `nginx reload applied after ${outcome.waitedMs} ms`);
+		} else if (outcome.noMaster) {
+			debug(logger, `Could not confirm the nginx reload: ${outcome.reason}`);
+		} else if (outcome.rejected) {
+			// The master has read the files on disk and rejected them: nothing is in doubt, another reload of the
+			// same files would fail the same way
+			logger.error(`${outcome.reason}. The running config is older than the config files.`);
+		} else if (reloadFailing) {
+			logger.warn(`Could not confirm the nginx reload: ${outcome.reason}`);
+		} else {
+			reloadInDoubt = true;
+			logger.warn(`Could not confirm the nginx reload: ${outcome.reason}`);
+		}
 	},
 
 	/**
@@ -1874,7 +1969,9 @@ const internalNginx = {
 	 *
 	 * Upstream names often don't resolve yet right after a host reboot (all containers start at once).
 	 * Hosts that end offline because of that, and proxy hosts with unresolved custom locations, are tried
-	 * again a few times with backoff (RECONCILE_RETRY_DELAYS), so they come back on their own.
+	 * again a few times with backoff (RECONCILE_RETRY_DELAYS), so they come back on their own. Proxy hosts
+	 * whose stored location status is still unresolved (eg. NPM restarted before a retry ran) are configured
+	 * again at startup too.
 	 *
 	 * @param   {Object}  [opts]
 	 * @param   {Object}  [opts.only]     {host_type: [ids]}, configure exactly these hosts (retry pass)
@@ -1906,7 +2003,10 @@ const internalNginx = {
 						(hostType === "proxy_host" &&
 							Array.isArray(row.locations) &&
 							row.locations.length > 0 &&
-							text.indexOf(CONFIG_VERSION_MARKER) === -1)
+							(text.indexOf(CONFIG_VERSION_MARKER) === -1 ||
+								// The DNS retry timer only lives in memory: after a restart within its window
+								// nobody would try these locations again and the status would stay unresolved
+								(row.meta?.nginx_locations || []).some((state) => state?.status === "unresolved")))
 					);
 				},
 			});
