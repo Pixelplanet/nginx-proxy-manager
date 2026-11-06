@@ -296,7 +296,7 @@ export interface NginxRegenerateHost {
 	name: string;
 	// offline and failed hosts
 	error?: string;
-	// warnings: the broken custom locations, one per line
+	// warnings: the broken custom locations, one per line; skipped: why the host was left alone
 	message?: string;
 }
 
@@ -306,5 +306,7 @@ export interface NginxRegenerateResult {
 	offline: NginxRegenerateHost[];
 	failed: NginxRegenerateHost[];
 	warnings: NginxRegenerateHost[];
+	// hosts a running certificate request has taken out of nginx, it puts them back itself
+	skipped?: NginxRegenerateHost[];
 	durationMs: number;
 }
