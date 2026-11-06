@@ -23,6 +23,7 @@ import {
 	parseNginxTestOutput,
 	sentence,
 } from "../lib/nginx-errors.js";
+import { createIncludeReader } from "../lib/nginx-includes.js";
 import { createLock } from "../lib/nginx-lock.js";
 import {
 	CONFIG_VERSION_MARKER,
@@ -1536,6 +1537,8 @@ const internalNginx = {
 	 * @returns {Promise<Array>}
 	 */
 	computeLocationStates: (locations, modeResolver) => {
+		// the files included by the advanced configs are read once per call
+		const includes = createIncludeReader();
 		return Promise.all(
 			locations.map(async (raw, index) => {
 				const loc = prepareLocation(raw);
@@ -1548,7 +1551,7 @@ const internalNginx = {
 				const resolved = isVariableHost(loc.forward_host)
 					? { mode: "static", status: "ok" }
 					: await modeResolver(loc.forward_host);
-				const result = chooseLocationMode(loc, resolved);
+				const result = chooseLocationMode(loc, resolved, includes);
 				state.mode = result.mode;
 				state.status = result.status;
 				if (result.status === "unresolved") {
@@ -2204,6 +2207,8 @@ const internalNginx = {
 		}
 
 		const renderEngine = utils.getRenderEngine();
+		// the files included by the advanced configs are read once per render
+		const includes = createIncludeReader();
 		let renderedLocations = "";
 
 		for (let i = 0; i < host.locations.length; i++) {
@@ -2252,7 +2257,7 @@ const internalNginx = {
 				}
 			}
 
-			renderedLocations += await renderLocation(renderEngine, template, locationCopy, state);
+			renderedLocations += await renderLocation(renderEngine, template, locationCopy, { ...state, includes });
 		}
 		return renderedLocations;
 	},
