@@ -269,6 +269,8 @@ const internalNginx = {
 	 * - Broken config files of OTHER hosts are repaired or moved aside (.err) and that host is marked offline.
 	 * - When this host's config is rejected outside of a custom location, the previous config is
 	 *   restored and an NginxConfigError (scope "host" or "global") is thrown.
+	 * - The same when `nginx -t` passes but nginx rejects the reload (eg. a listen port another process uses):
+	 *   nginx is reloaded with the previous config, see rollbackRejectedReload().
 	 *
 	 * @param   {Object|String}  model
 	 * @param   {String}         host_type
@@ -291,6 +293,7 @@ const internalNginx = {
 		return withLock(() =>
 			internalNginx.configureHost(model, host_type, host, {
 				reload: opts.reload !== false,
+				applyRepairs: opts.reload !== false,
 				depth: 0,
 			}),
 		);
@@ -411,6 +414,9 @@ const internalNginx = {
 	 *                                    repaired: they are moved aside for the test and listed in opts.aside,
 	 *                                    the caller puts them back, see dryRun()
 	 * @param   {Array}    [opts.aside]   dry run: collects the other hosts' files moved aside
+	 * @param   {Boolean}  [opts.applyRepairs] when this host's config is not applied (it is rejected) but other
+	 *                                    hosts were repaired: reload nginx, so it runs the repaired files their
+	 *                                    status already describes, see applyRepairs()
 	 * @returns {Promise<Object>}
 	 */
 	configureHost: async (model, host_type, host, opts) => {
@@ -486,6 +492,9 @@ const internalNginx = {
 				configText = await internalNginx.generateConfig(hostType, host, { locationStates: states });
 			} catch (err) {
 				await internalNginx.restoreHost(model, host, filename, previous, previousErr, heals > 0);
+				if (opts.applyRepairs && heals > 0) {
+					await internalNginx.applyRepairs(hostType, host);
+				}
 				const error =
 					err instanceof errs.ConfigurationError ? err : new errs.ConfigurationError(err.message, err);
 				// the change was not applied, see isHostLevelError()
@@ -710,6 +719,9 @@ const internalNginx = {
 				return meta;
 			}
 			await internalNginx.restoreHost(model, host, filename, previous, previousErr, heals > 0);
+			if (opts.applyRepairs && heals > 0) {
+				await internalNginx.applyRepairs(hostType, host);
+			}
 			if (opts.dryRun && states) {
 				error.locationStates = states.map(publicLocationState);
 			}
@@ -729,17 +741,85 @@ const internalNginx = {
 		if (opts.dryRun) {
 			internalNginx.restoreConfig(filename, previous);
 			internalNginx.restoreConfig(`${filename}.err`, previousErr);
+			if (opts.applyRepairs && heals > 0) {
+				await internalNginx.applyRepairs(hostType, host);
+			}
 			return meta;
 		}
 
 		internalNginx.deleteFile(`${filename}.err`);
-		await model.query().where("id", host.id).patch({ meta });
 
 		if (opts.reload) {
-			// The config was just tested while holding the lock, no need to test again
-			await internalNginx.reloadNginx({ skipTest: true });
+			// The config was just tested while holding the lock, no need to test again. The meta is written once
+			// nginx has not rejected the reload, so the host never shows online for a config nginx doesn't run.
+			let outcome;
+			try {
+				outcome = await internalNginx.reloadNginx({ skipTest: true });
+			} catch (err) {
+				await model.query().where("id", host.id).patch({ meta });
+				throw err;
+			}
+			if (outcome?.rejected) {
+				// nginx -t passed but the master rejected the files, eg. a listen port another process uses
+				// (-t doesn't bind ports): put the previous config back and have nginx apply it
+				await internalNginx.restoreHost(model, host, filename, previous, previousErr, heals > 0);
+				throw await internalNginx.rollbackRejectedReload(hostType, host, outcome, configText);
+			}
 		}
+		await model.query().where("id", host.id).patch({ meta });
 		return meta;
+	},
+
+	/**
+	 * Other hosts were repaired (regenerated, or moved aside and marked offline) while configuring a host whose
+	 * own config is then not applied: reloads nginx, so it runs the repaired files their status already
+	 * describes. Tests first (the files on disk, with this host's previous config, were not tested together).
+	 * Never throws, the caller's own result is what the user gets. Only call this while holding the lock.
+	 *
+	 * @param   {String}  hostType
+	 * @param   {Object}  host
+	 * @returns {Promise}
+	 */
+	applyRepairs: async (hostType, host) => {
+		try {
+			const outcome = await internalNginx.reloadNginx();
+			if (outcome?.rejected) {
+				logger.error(`${hostLabel(hostType, host)}: nginx did not apply the repairs of other hosts`);
+			}
+		} catch (err) {
+			logger.error(`${hostLabel(hostType, host)}: could not apply the repairs of other hosts: ${err.message}`);
+		}
+	},
+
+	/**
+	 * After nginx rejected the reload with a host's new config and the previous config files were put back:
+	 * reloads once more, so nginx runs the files on disk again. Only call this while holding the lock.
+	 *
+	 * @param   {String}  hostType
+	 * @param   {Object}  host
+	 * @param   {Object}  outcome     the rejected reload, see lib/nginx-reload.js
+	 * @param   {String}  configText  the host's rejected config
+	 * @returns {Promise<errs.NginxConfigError>} the error to fail the save with: scope "host" when nginx applies
+	 *          the previous config, scope "global" when it rejects that as well (the new config is not the cause)
+	 */
+	rollbackRejectedReload: async (hostType, host, outcome, configText) => {
+		const again = await internalNginx.reloadNginx({ skipTest: true }).catch((err) => {
+			logger.error(`${hostLabel(hostType, host)}: could not reload the previous config: ${err.message}`);
+			return null;
+		});
+		const rejected = again?.rejected ? again : outcome;
+		const parsed = {
+			message: rejected.emerg || rejected.reason || null,
+			file: null,
+			line: null,
+			output: rejected.reason || null,
+		};
+		if (again?.rejected) {
+			logger.error(`${hostLabel(hostType, host)}: nginx rejects the previous config as well: ${again.reason}`);
+			return internalNginx.buildConfigError("global", hostType, host, parsed, "");
+		}
+		logger.warn(`${hostLabel(hostType, host)}: nginx rejected the new config, the previous config is back`);
+		return internalNginx.buildConfigError("host", hostType, host, parsed, configText);
 	},
 
 	/**
@@ -1324,7 +1404,8 @@ const internalNginx = {
 	 *
 	 * @param   {Object}  [opts]
 	 * @param   {Boolean} [opts.skipTest]
-	 * @returns {Promise}
+	 * @returns {Promise<Object>} the outcome of the reload, see lib/nginx-reload.js. `rejected` is set when the
+	 *          master read the config files and rejected them: it still runs the config it ran before.
 	 */
 	reloadNginx: async (opts = {}) => {
 		if (!opts.skipTest) {
@@ -1350,6 +1431,7 @@ const internalNginx = {
 			reloadInDoubt = true;
 			logger.warn(`Could not confirm the nginx reload: ${outcome.reason}`);
 		}
+		return outcome;
 	},
 
 	/**
@@ -1896,7 +1978,8 @@ const internalNginx = {
 	 * nginx once. Hosts that nginx rejects are taken offline, broken custom locations are quarantined as on
 	 * save. Used by POST /api/nginx/regenerate and backend/scripts/regenerate-config.
 	 *
-	 * When the final test/reload or loading the rows of a host type fails, the error is thrown with the
+	 * When the final test/reload fails (also when nginx rejects the reload) or loading the rows of a host type
+	 * fails, the error is thrown with the
 	 * summary of what was done until then as `err.regenerateSummary` (hosts may have changed already).
 	 *
 	 * @param   {Object}  [opts]
@@ -1921,7 +2004,23 @@ const internalNginx = {
 				let failure = null;
 				try {
 					// Also when no host was configured: restored aside files have to be loaded
-					await internalNginx.reloadNginx();
+					const outcome = await internalNginx.reloadNginx();
+					if (outcome?.rejected) {
+						// nginx -t passed but the master rejected the files (eg. a listen port another process
+						// uses, -t doesn't bind ports): nginx still runs the config from before the regeneration
+						failure = internalNginx.buildConfigError(
+							"global",
+							"default",
+							{ id: 0 },
+							{
+								message: outcome.emerg || outcome.reason || null,
+								file: null,
+								line: null,
+								output: outcome.reason || null,
+							},
+							"",
+						);
+					}
 				} catch (err) {
 					failure = err;
 				}
