@@ -576,6 +576,7 @@ const ProxyHostModal = EasyModal.create(({ id, prefill, visible, remove }: Props
 													}
 													highlightIndex={highlightIndex}
 													allowAdvanced={!!isAdmin}
+													readOnly={isSubmitting}
 												/>
 											</div>
 											<div className={tabPane("ssl")} id="tab-ssl" role="tabpanel" aria-labelledby="tab-link-ssl">
