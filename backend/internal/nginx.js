@@ -30,6 +30,7 @@ import {
 	describeConfigLine,
 	isolateFaultyLocations,
 	isVariableHost,
+	locationDnsMarker,
 	MESSAGES as LOCATION_MESSAGES,
 	parseLocationPath,
 	preflightLocation,
@@ -100,6 +101,15 @@ const { withLock: withRawLock, runOutsideLock, isHeld } = createLock();
  * config, or it rejected it. Files changed after that (candidates, rollbacks) may then be what nginx applies.
  */
 let reloadInDoubt = false;
+
+/**
+ * Hosts whose config a certificate request has removed until the request is done ("<host type>#<id>" ->
+ * how many requests hold it), see suspendHosts(). Their config file is missing on purpose: recreating it
+ * (eg. the startup reconcile) would put the host back in front of the HTTP challenge server and the
+ * challenge requests would go to the host's upstream.
+ */
+const suspendedHosts = new Map();
+const suspendKey = (hostType, id) => `${hostType}#${id}`;
 
 /**
  * Set when the extra reload of settleReload() was not confirmed either: nginx doesn't apply the config at all
@@ -236,6 +246,44 @@ const internalNginx = {
 		signal: () => utils.execFile("/usr/sbin/nginx", ["-s", "reload"]),
 		errorLog: "/data/logs/fallback_error.log",
 	}),
+
+	/**
+	 * Marks hosts as removed for a certificate request: reconcile() and bulkGenerateConfigs() leave their
+	 * config missing until the returned function is called. Call it before the configs are removed.
+	 *
+	 * @param   {String}  hostType
+	 * @param   {Array}   hosts
+	 * @returns {Function} ends the suspension, may be called more than once
+	 */
+	suspendHosts: (hostType, hosts) => {
+		const type = internalNginx.getFileFriendlyHostType(hostType);
+		const keys = (hosts || []).filter((h) => h?.id).map((h) => suspendKey(type, h.id));
+		for (const key of keys) {
+			suspendedHosts.set(key, (suspendedHosts.get(key) || 0) + 1);
+		}
+		let released = false;
+		return () => {
+			if (released) {
+				return;
+			}
+			released = true;
+			for (const key of keys) {
+				const count = (suspendedHosts.get(key) || 0) - 1;
+				if (count > 0) {
+					suspendedHosts.set(key, count);
+				} else {
+					suspendedHosts.delete(key);
+				}
+			}
+		};
+	},
+
+	/**
+	 * @param   {String}  hostType  file friendly host type
+	 * @param   {Number}  id
+	 * @returns {boolean} true while a certificate request has removed the host's config, see suspendHosts()
+	 */
+	isSuspended: (hostType, id) => suspendedHosts.has(suspendKey(hostType, id)),
 
 	/**
 	 * Removes the server-owned meta keys from incoming data, in place.
@@ -465,7 +513,7 @@ const internalNginx = {
 								: s,
 						);
 						// writes the host's file, see below
-						const text = await internalNginx.generateConfig(hostType, host, { locationStates: stubbed });
+						const text = await internalNginx.generateConfig(hostType, host, { locationStates: stubbed, modeResolver });
 						return internalNginx.runTest({ file: filename, text });
 					},
 				});
@@ -489,7 +537,7 @@ const internalNginx = {
 			}
 
 			try {
-				configText = await internalNginx.generateConfig(hostType, host, { locationStates: states });
+				configText = await internalNginx.generateConfig(hostType, host, { locationStates: states, modeResolver });
 			} catch (err) {
 				await internalNginx.restoreHost(model, host, filename, previous, previousErr, heals > 0);
 				if (opts.applyRepairs && heals > 0) {
@@ -1579,6 +1627,7 @@ const internalNginx = {
 	 * @param   {Object}  host_row
 	 * @param   {Object}  [opts]
 	 * @param   {Array}   [opts.locationStates]  from computeLocationStates(), computed when missing
+	 * @param   {Function} [opts.modeResolver]   the DNS setting is recorded in the config, see locationDnsMarker()
 	 * @returns {Promise<String>} the written config
 	 */
 	generateConfig: async (host_type, host_row, opts = {}) => {
@@ -1625,9 +1674,9 @@ const internalNginx = {
 		}
 
 		if (Array.isArray(host.locations) && host.locations.length) {
-			const states =
-				opts.locationStates ||
-				(await internalNginx.computeLocationStates(host.locations, createModeResolver()));
+			const modeResolver = opts.modeResolver || createModeResolver();
+			const states = opts.locationStates || (await internalNginx.computeLocationStates(host.locations, modeResolver));
+			host.npm_location_dns = locationDnsMarker(modeResolver);
 
 			// Allow someone who is using / custom location path to use it, and skip the default / location.
 			// A location the user disabled doesn't count, the default location takes over.
@@ -1862,6 +1911,10 @@ const internalNginx = {
 				if (!staleHost?.id) {
 					continue;
 				}
+				if (internalNginx.isSuspended(type, staleHost.id)) {
+					// A certificate request has removed it, it is configured once the request is done
+					continue;
+				}
 				// The rows were loaded before the lock was taken, sometimes minutes before (a certificate
 				// request). Configure from the current row, or a concurrent edit (its locations, its meta)
 				// would be overwritten with the old values.
@@ -1911,7 +1964,9 @@ const internalNginx = {
 
 	/**
 	 * Configures every non-deleted, enabled host of the given types without reloading nginx. A host that nginx
-	 * rejects is taken offline, any other failure is logged and returned, nothing throws for one host.
+	 * rejects is taken offline, any other failure is logged and returned, nothing throws for one host. Hosts
+	 * that a running certificate request has removed (see suspendHosts()) are left alone and come back as
+	 * {suspended: true}: recreating their config would send the challenge requests to their upstream.
 	 * Only call this while holding the lock.
 	 *
 	 * @param   {Object}    opts
@@ -1920,7 +1975,7 @@ const internalNginx = {
 	 * @param   {Function}  [opts.needsWork]     (hostType, row) => boolean, false skips the host
 	 * @param   {Object}    [opts.modeResolver]  shared DNS cache, see lib/upstream-dns.js
 	 * @param   {String}    opts.logPrefix
-	 * @returns {Promise<{results: Array<{hostType, row, meta?, error?, skipped?}>, loadErrors: Array}>}
+	 * @returns {Promise<{results: Array<{hostType, row, meta?, error?, skipped?, suspended?}>, loadErrors: Array}>}
 	 */
 	configureEnabledHosts: async (opts) => {
 		const results = [];
@@ -1952,6 +2007,10 @@ const internalNginx = {
 			}
 
 			for (const row of rows) {
+				if (internalNginx.isSuspended(hostType, row.id)) {
+					results.push({ hostType, row, suspended: true });
+					continue;
+				}
 				if (opts.needsWork && !opts.needsWork(hostType, row)) {
 					results.push({ hostType, row, skipped: true });
 					continue;
@@ -1986,7 +2045,8 @@ const internalNginx = {
 	 * @param   {Array}   [opts.hostTypes]     proxy_host, redirection_host, dead_host, stream; default all
 	 * @param   {Boolean} [opts.restoreAside]  put back config files an interrupted test left aside, default
 	 *                                         true; false for the CLI, it doesn't share the backend's lock
-	 * @returns {Promise<Object>} {checked, regenerated, offline, failed, warnings, duration_ms}, see lib/nginx-regenerate.js
+	 * @returns {Promise<Object>} {checked, regenerated, offline, failed, warnings, skipped, duration_ms}, see
+	 *                            lib/nginx-regenerate.js; hosts a running certificate request removed are skipped
 	 */
 	regenerateAll: (opts = {}) =>
 		withLock(async () => {
@@ -2035,7 +2095,7 @@ const internalNginx = {
 				const summary = summariseFinal(results, await internalNginx.loadHostStates(healed));
 				summary.duration_ms = Date.now() - started;
 				logger.info(
-					`Regenerate: checked ${summary.checked} hosts, regenerated ${summary.regenerated}, offline ${summary.offline.length}, failed ${summary.failed.length}, warnings ${summary.warnings.length} (${summary.duration_ms} ms)${failure ? `, failed: ${failure.message}` : ""}`,
+					`Regenerate: checked ${summary.checked} hosts, regenerated ${summary.regenerated}, offline ${summary.offline.length}, failed ${summary.failed.length}, warnings ${summary.warnings.length}${summary.skipped.length ? `, ${summary.skipped.length} skipped for a certificate request` : ""} (${summary.duration_ms} ms)${failure ? `, failed: ${failure.message}` : ""}`,
 				);
 				if (failure) {
 					failure.regenerateSummary = summary;
@@ -2074,7 +2134,8 @@ const internalNginx = {
 	/**
 	 * Called once after the backend started: regenerates hosts whose config is missing, was moved aside
 	 * (by the prepare/55-nginx-validate.sh startup check or a failed test), or was written by an older
-	 * version (literal custom location upstreams). Never throws.
+	 * version (literal custom location upstreams). Never throws. Hosts that a running certificate request
+	 * has removed (see suspendHosts()) are skipped, the request puts them back.
 	 *
 	 * Upstream names often don't resolve yet right after a host reboot (all containers start at once).
 	 * Hosts that end offline because of that, and proxy hosts with unresolved custom locations, are tried
@@ -2090,7 +2151,7 @@ const internalNginx = {
 	reconcile: (opts = {}) =>
 		withLock(async () => {
 			const attempt = opts.attempt || 0;
-			const summary = { checked: 0, regenerated: 0, offline: 0, failed: 0, retry: {} };
+			const summary = { checked: 0, regenerated: 0, offline: 0, failed: 0, suspended: 0, retry: {} };
 			const modeResolver = createModeResolver();
 			if (!opts.only) {
 				internalNginx.restoreStaleAside();
@@ -2113,13 +2174,19 @@ const internalNginx = {
 							Array.isArray(row.locations) &&
 							row.locations.length > 0 &&
 							(text.indexOf(CONFIG_VERSION_MARKER) === -1 ||
+								// written for another NPM_LOCATION_DYNAMIC_DNS / resolver setting
+								text.indexOf(locationDnsMarker(modeResolver)) === -1 ||
 								// The DNS retry timer only lives in memory: after a restart within its window
 								// nobody would try these locations again and the status would stay unresolved
 								(row.meta?.nginx_locations || []).some((state) => state?.status === "unresolved")))
 					);
 				},
 			});
-			for (const { hostType, row, meta, error, skipped } of results) {
+			for (const { hostType, row, meta, error, skipped, suspended } of results) {
+				if (suspended) {
+					summary.suspended++;
+					continue;
+				}
 				summary.checked++;
 				if (skipped) {
 					continue;
@@ -2148,7 +2215,7 @@ const internalNginx = {
 			}
 			const retries = Object.values(summary.retry).reduce((sum, ids) => sum + ids.length, 0);
 			logger.info(
-				`Startup reconcile${attempt ? ` (retry ${attempt})` : ""}: checked ${summary.checked} hosts, regenerated ${summary.regenerated}, offline ${summary.offline}, failed ${summary.failed}${retries ? `, ${retries} waiting for DNS` : ""}`,
+				`Startup reconcile${attempt ? ` (retry ${attempt})` : ""}: checked ${summary.checked} hosts, regenerated ${summary.regenerated}, offline ${summary.offline}, failed ${summary.failed}${summary.suspended ? `, ${summary.suspended} skipped for a certificate request` : ""}${retries ? `, ${retries} waiting for DNS` : ""}`,
 			);
 
 			if (retries && attempt < RECONCILE_RETRY_DELAYS.length) {

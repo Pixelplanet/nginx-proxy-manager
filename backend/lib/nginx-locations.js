@@ -31,6 +31,17 @@ const TEMPLATE_FILE = `${__dirname}/../templates/_location.conf`;
 const CONFIG_VERSION = 2;
 const CONFIG_VERSION_MARKER = `# npm-config-version: ${CONFIG_VERSION}`;
 
+/**
+ * The rendering of custom locations depends on settings read at startup (NPM_LOCATION_DYNAMIC_DNS, DISABLE_RESOLVER
+ * and the generated resolvers.conf). The config of a proxy host with locations records which one it was written for,
+ * so the startup reconcile regenerates it when the setting changed (eg. back to literal upstreams).
+ *
+ * @param   {Function} modeResolver  from createModeResolver() (lib/upstream-dns.js)
+ * @returns {String} eg. `# npm-location-dns: dynamic`
+ */
+const locationDnsMarker = (modeResolver) =>
+	`# npm-location-dns: ${modeResolver?.dynamicEnabled && modeResolver?.hasResolver ? "dynamic" : "static"}`;
+
 // Characters that would break out of the generated nginx directive
 const INVALID_HOST_CHARS = /[\s;{}'"`\\$#]/;
 // The same for the forward path, which may hold nginx variables (`/api/$1`)
@@ -246,12 +257,14 @@ const preflightLocation = (loc) => {
 		return { status: "quarantined", message: MESSAGES.unbalancedBraces };
 	}
 	// nginx -t rejects a URI in the proxy_pass of a regex or named location ("cannot have URI part"), but not
-	// when the proxy_pass has a variable: `location ~ ^/api/(.*)$` with forward path `/v1/$1` has always worked.
-	// Such a location is rendered literally, see chooseLocationMode().
-	if (loc.forward_path && !hasVariablePath(loc) && parsed.isRegex) {
+	// when the proxy_pass has a variable: `location ~ ^/api/(.*)$` with forward path `/v1/$1`, or forward host
+	// `$backend` with forward path `/v1/`, have always worked. Such a location is rendered literally, see
+	// chooseLocationMode().
+	const variableProxyPass = hasVariablePath(loc) || isVariableHost(loc.forward_host);
+	if (loc.forward_path && !variableProxyPass && parsed.isRegex) {
 		return { status: "quarantined", message: MESSAGES.regexWithForwardPath };
 	}
-	if (loc.forward_path && !hasVariablePath(loc) && parsed.isNamed) {
+	if (loc.forward_path && !variableProxyPass && parsed.isNamed) {
 		return { status: "quarantined", message: MESSAGES.namedWithForwardPath };
 	}
 	return null;
@@ -528,6 +541,7 @@ export {
 	hasVariablePath,
 	isolateFaultyLocations,
 	isVariableHost,
+	locationDnsMarker,
 	matchSavedLocations,
 	normaliseLocationPath,
 	parseLocationPath,

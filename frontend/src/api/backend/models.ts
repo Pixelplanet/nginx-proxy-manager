@@ -368,6 +368,18 @@ export interface UpstreamCheckResult {
 	resolverOk?: boolean | null;
 	systemOk?: boolean | null;
 	ms?: number | null;
+	// reachability through each lookup method on its own (null: IP literal, or not probed)
+	lookups?: {
+		system: UpstreamLookupResult | null;
+		resolver: UpstreamLookupResult | null;
+	} | null;
+}
+
+export interface UpstreamLookupResult {
+	ok: boolean;
+	code: UpstreamCheckCode;
+	addresses: string[];
+	ms: number | null;
 }
 
 export interface UpstreamCheckResponse {
@@ -412,7 +424,7 @@ export interface NginxRegenerateHost {
 	name: string;
 	// offline and failed hosts
 	error?: string;
-	// warnings: the broken custom locations, one per line
+	// warnings: the broken custom locations, one per line; skipped: why the host was left alone
 	message?: string;
 }
 
@@ -422,6 +434,8 @@ export interface NginxRegenerateResult {
 	offline: NginxRegenerateHost[];
 	failed: NginxRegenerateHost[];
 	warnings: NginxRegenerateHost[];
+	// hosts a running certificate request has taken out of nginx, it puts them back itself
+	skipped?: NginxRegenerateHost[];
 	durationMs: number;
 }
 
