@@ -17,4 +17,4 @@ The status column shows whether nginx actually serves the host:
 
 A broken custom location no longer takes the whole host offline: only that location is disabled, and the editor shows why. Each location can also be switched off on its own.
 
-The forward host fields suggest hosts that were used before and hosts found on the Docker network. To also list Docker containers, set `NPM_DOCKER_DISCOVERY=true` and give NPM access to the Docker API (a socket proxy is recommended, see the documentation).
+The forward host fields suggest hosts that were used before and hosts found on the Docker network. To also list Docker containers, set `NPM_DOCKER_DISCOVERY=true` and give NPM access to the Docker API (a socket proxy is recommended, see the documentation). Picking a container with `npm.*` labels fills in the free fields of a new proxy host.
