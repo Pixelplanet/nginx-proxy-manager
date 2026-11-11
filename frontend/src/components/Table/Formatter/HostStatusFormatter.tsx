@@ -8,6 +8,7 @@ import { useLocaleState } from "src/context";
 import { formatDateTime, T } from "src/locale";
 import { getHostStatus, type HostState } from "src/modules/HostStatus";
 import { HostNginxError } from "../../NginxFeedback";
+import { LocationStatusDetail } from "../../StatusBadges";
 
 const STATE_COLOR: Record<HostState, string> = {
 	disabled: "secondary",
@@ -106,7 +107,7 @@ export function HostStatusFormatter({ enabled, meta, onLogs }: Props) {
 								</span>
 							</div>
 							<div className="text-secondary text-break">
-								{l.message || <T id={`location-status.${l.status}.default`} />}
+								<LocationStatusDetail location={l} />
 							</div>
 						</li>
 					))}
