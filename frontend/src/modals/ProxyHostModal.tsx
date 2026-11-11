@@ -10,6 +10,7 @@ import {
 	AccessField,
 	Button,
 	cleanLocations,
+	DockerLabelsHelp,
 	DomainNamesField,
 	type ExistingHost,
 	ForwardHostCheckHint,
@@ -460,6 +461,7 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 																		htmlFor="forwardHost"
 																	>
 																		<T id="proxy-host.forward-host" />
+																		<DockerLabelsHelp />
 																	</label>
 																	<UpstreamField
 																		id="forwardHost"

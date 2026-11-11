@@ -1007,6 +1007,9 @@
 	"upstream.docker-help": {
 		"defaultMessage": "Seadista"
 	},
+	"upstream.docker-labels": {
+		"defaultMessage": "Dockeri sildid"
+	},
 	"upstream.docker-unavailable": {
 		"defaultMessage": "Dockeri tuvastus ei tööta: {reason}."
 	},
