@@ -415,6 +415,30 @@ export interface UpstreamHealth {
 	};
 }
 
+export type NginxHostType = "proxy_host" | "redirection_host" | "dead_host" | "stream";
+
+export interface NginxRegenerateHost {
+	hostType: NginxHostType;
+	id: number;
+	// first domain name, or the incoming port of a stream
+	name: string;
+	// offline and failed hosts
+	error?: string;
+	// warnings: the broken custom locations, one per line; skipped: why the host was left alone
+	message?: string;
+}
+
+export interface NginxRegenerateResult {
+	checked: number;
+	regenerated: number;
+	offline: NginxRegenerateHost[];
+	failed: NginxRegenerateHost[];
+	warnings: NginxRegenerateHost[];
+	// hosts a running certificate request has taken out of nginx, it puts them back itself
+	skipped?: NginxRegenerateHost[];
+	durationMs: number;
+}
+
 // ---------------------------------------------------------------------------
 // "Test config": POST /api/nginx/<host type>/test checks a host's settings
 // without saving them.
