@@ -148,16 +148,36 @@ export interface ProxyLocation {
 export type NginxConfigErrorScope = "location" | "host" | "other_host" | "global";
 
 export interface NginxConfigErrorDetails {
-	kind: "nginx_config";
+	// unsafe_value: a stored value that can't be written into nginx config safely (host meta only)
+	kind: "nginx_config" | "unsafe_value";
 	scope: NginxConfigErrorScope;
-	hostType?: string;
-	hostId?: number;
+	hostType?: string | null;
+	hostId?: number | null;
 	file?: string | null;
 	line?: number | null;
 	locationIndex?: number | null;
 	locationPath?: string | null;
 	nginxOutput?: string | null;
 	hint?: string | null;
+	// What the UI words the error from (the message is English). Missing in details stored by older versions.
+	// the part of the host's config the error is in (host_advanced, location, location_advanced), and the line
+	// within it
+	area?: string | null;
+	relativeLine?: number | null;
+	// special cases: conflict, regenerated_conflict, too_many_broken_hosts, redacted
+	reason?: string;
+	// too_many_broken_hosts: how many hosts one operation repairs at most
+	max?: number;
+	// the humanised nginx error (unsafe_value: the rejected value, quoted), shown as it is
+	detail?: string | null;
+	// unsafe_value: which value, eg. forward_host
+	field?: string | null;
+	// names the hint: nginx-error.hint.<hintCode>
+	hintCode?: string | null;
+	// host meta: the host was taken offline while another host was saved
+	autoDisabled?: boolean;
+	// default_site: the error came from saving the default site
+	context?: string;
 }
 
 export type LocationStatusValue = "ok" | "disabled" | "quarantined" | "unresolved";
@@ -167,6 +187,11 @@ export interface NginxLocationStatus {
 	path: string;
 	status: LocationStatusValue;
 	mode: "dynamic" | "static" | null;
+	// why the location is not ok, worded by the UI (location-check.<code>); null when it is ok or disabled
+	code?: string | null;
+	// host (unresolved), detail (rejected, omitted: nginx's error text, not translated)
+	params?: { host?: string; detail?: string } | null;
+	// the same in English
 	message: string | null;
 }
 
@@ -294,6 +319,11 @@ export type UpstreamSource = "docker" | "dns" | "history";
 
 export interface UpstreamProviderStatus {
 	status: "ok" | "disabled" | "unavailable";
+	// language neutral reason (null: none), the UI words it, eg. upstream.docker-error.<code>
+	code: string | null;
+	// values for the text of `code`; `detail` is a raw error text, not translated
+	params?: Record<string, string | number>;
+	// English text for logs and API users, not shown in the UI
 	message: string | null;
 }
 
@@ -319,9 +349,14 @@ export interface UpstreamSuggestion {
 	existingHostType: "proxy_host" | "redirection_host" | "dead_host" | null;
 }
 
+// What a candidate's host name is: the UI words it in its own language
+export type UpstreamCandidateKind = "container" | "compose_service" | "dns" | "history";
+
 export interface UpstreamCandidate {
 	host: string;
-	label: string;
+	kind: UpstreamCandidateKind;
+	// compose_service: the container the service name belongs to
+	owner: string | null;
 	source: UpstreamSource;
 	ports: number[];
 	hintPort: number | null;
@@ -423,10 +458,24 @@ export interface NginxRegenerateHost {
 	id: number;
 	// first domain name, or the incoming port of a stream
 	name: string;
-	// offline and failed hosts
+	// offline and failed hosts, in English
 	error?: string;
-	// warnings: the broken custom locations, one per line; skipped: why the host was left alone
+	// offline: the host's meta.nginxDetails; failed: the error's details, if any. The UI words the error from them.
+	details?: NginxConfigErrorDetails | null;
+	// warnings: the broken custom locations, one per line; skipped: why the host was left alone (English)
 	message?: string;
+	// warnings: the broken custom locations, as the UI words them
+	locations?: NginxRegenerateLocation[];
+}
+
+export interface NginxRegenerateLocation {
+	index?: number;
+	path: string;
+	status: "quarantined" | "unresolved";
+	// location-check.<code>, with params (host, detail: nginx's error, not translated)
+	code?: string | null;
+	params?: { host?: string; detail?: string } | null;
+	message?: string | null;
 }
 
 export interface NginxRegenerateResult {
@@ -454,10 +503,15 @@ export interface HostTestUpstream extends UpstreamCheckResult {
 }
 
 export interface HostTestWarning {
-	code: "certificate_pending" | "other_host_broken" | string;
+	code: "certificate_pending" | "other_host_broken" | "upstreams_rate_limited" | string;
+	// English text, shown only for a code the UI has no text for
 	message: string;
 	hostType?: string | null;
 	hostId?: number | null;
+	// other_host_broken: why nginx rejects that host (raw nginx text, not translated)
+	detail?: string | null;
+	// upstreams_rate_limited: seconds until the next check is possible
+	retryAfter?: number;
 }
 
 export interface HostTestResult {

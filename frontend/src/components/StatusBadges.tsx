@@ -3,9 +3,12 @@ import cn from "classnames";
 import type { ReactNode } from "react";
 import OverlayTrigger from "react-bootstrap/OverlayTrigger";
 import Tooltip from "react-bootstrap/Tooltip";
-import type { LocationStatusValue, UpstreamCheckResult } from "src/api/backend";
+import type { LocationStatusValue, NginxLocationStatus, UpstreamCheckResult } from "src/api/backend";
 import { intl, T } from "src/locale";
-import { isTranslatedCheckCode } from "src/modules/HostStatus";
+import { isTranslatedCheckCode, locationStatusText } from "src/modules/HostStatus";
+import { checkDetailText, formatCheckMs, formatValueList } from "src/modules/UpstreamText";
+
+export { formatCheckMs };
 
 interface TipProps {
 	id: string;
@@ -34,18 +37,32 @@ const LOCATION_STATUS_CLASS: Record<LocationStatusValue, string> = {
 	quarantined: "bg-red-lt",
 };
 
+interface LocationStatusDetailProps {
+	location: Pick<NginxLocationStatus, "status" | "code" | "params" | "message">;
+}
+/** What a custom location's state means, nginx's error (not translated) below it */
+export function LocationStatusDetail({ location }: LocationStatusDetailProps) {
+	const { text, detail } = locationStatusText(location);
+	return (
+		<>
+			{text}
+			{detail ? <span className="d-block small text-break">{detail}</span> : null}
+		</>
+	);
+}
+
 interface LocationStatusBadgeProps {
 	id: string;
 	status: LocationStatusValue;
-	message?: string | null;
+	location?: Pick<NginxLocationStatus, "status" | "code" | "params" | "message"> | null;
 }
 /** Server reported status of a custom location; nothing for "ok" */
-export function LocationStatusBadge({ id, status, message }: LocationStatusBadgeProps) {
+export function LocationStatusBadge({ id, status, location }: LocationStatusBadgeProps) {
 	if (status === "ok") {
 		return null;
 	}
 	const tip =
-		status === "disabled" ? null : message || intl.formatMessage({ id: `location-status.${status}.default` });
+		status === "disabled" ? null : <LocationStatusDetail location={location || { status, message: null }} />;
 	return (
 		<Tip id={`${id}-tip`} tip={tip}>
 			<span className={cn("badge", LOCATION_STATUS_CLASS[status])} data-status={status}>
@@ -54,9 +71,6 @@ export function LocationStatusBadge({ id, status, message }: LocationStatusBadge
 		</Tip>
 	);
 }
-
-/** Whole milliseconds, "<1" below one, as in the check's message */
-export const formatCheckMs = (ms: number): string => (ms < 1 ? "<1" : `${Math.round(ms)}`);
 
 /** A check result to show as a warning rather than as reachable or failed */
 export const isResolverWarning = (result: Pick<UpstreamCheckResult, "code">): boolean =>
@@ -74,6 +88,12 @@ export const checkResultText = (result: UpstreamCheckResult): string => {
 	}
 	return result.message || result.code;
 };
+
+/** What a check result means and the addresses it found, after the short text: for a tooltip or hint line */
+export const checkResultDetails = (result: UpstreamCheckResult): string =>
+	[checkDetailText(result), result.addresses?.length ? formatValueList(result.addresses) : null]
+		.filter(Boolean)
+		.join(" – ");
 
 interface UpstreamCheckBadgeProps {
 	id: string;
@@ -104,9 +124,7 @@ export function UpstreamCheckBadge({ id, result, isChecking }: UpstreamCheckBadg
 	) : (
 		<IconX size={12} className="me-1" />
 	);
-	const tip = [result.message, result.addresses?.length ? result.addresses.join(", ") : null]
-		.filter(Boolean)
-		.join(" – ");
+	const tip = checkResultDetails(result);
 	return (
 		<Tip id={`${id}-tip`} tip={tip || null}>
 			<span className={cn("badge", cls)} data-check={result.code}>
@@ -136,9 +154,7 @@ export function UpstreamCheckHint({ id, result, isChecking }: UpstreamCheckBadge
 	const warn = isResolverWarning(result);
 	const cls = warn ? "text-warning" : result.ok ? "text-success" : "text-danger";
 	const Icon = warn ? IconAlertTriangle : result.ok ? IconCheck : IconX;
-	const details = [result.message, result.addresses?.length ? result.addresses.join(", ") : null]
-		.filter(Boolean)
-		.join(" – ");
+	const details = checkResultDetails(result);
 	return (
 		<div id={id} className="form-hint d-flex align-items-start mt-1" data-check={result.code}>
 			<Icon size={14} className={cn("me-1 mt-1 flex-shrink-0", cls)} />

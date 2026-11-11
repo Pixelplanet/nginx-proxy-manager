@@ -7,6 +7,8 @@ import type { HostMeta, UpstreamHealthTarget, UpstreamHostHealth } from "src/api
 import { useLocaleState } from "src/context";
 import { formatDateTime, intl, T } from "src/locale";
 import { getHostStatus, type HostState, isTranslatedCheckCode } from "src/modules/HostStatus";
+import { HostNginxError } from "../../NginxFeedback";
+import { LocationStatusDetail } from "../../StatusBadges";
 
 const STATE_COLOR: Record<HostState, string> = {
 	disabled: "secondary",
@@ -16,7 +18,7 @@ const STATE_COLOR: Record<HostState, string> = {
 };
 
 const STATE_LABEL: Record<HostState, string> = {
-	disabled: "host-status.disabled",
+	disabled: "disabled",
 	online: "online",
 	warning: "host-status.warning",
 	error: "host-status.error",
@@ -28,7 +30,7 @@ const HIDE_DELAY_MS = 200;
 export const describeHealthTarget = (t: UpstreamHealthTarget) => {
 	const where =
 		t.locationIndex === null || typeof t.locationIndex === "undefined"
-			? intl.formatMessage({ id: "host-status.main-target" })
+			? intl.formatMessage({ id: "column.destination" })
 			: t.path || `#${t.locationIndex + 1}`;
 	const reason = isTranslatedCheckCode(t.code) ? intl.formatMessage({ id: `upstream.check.${t.code}` }) : t.message;
 	return { where, target: `${t.host}:${t.port}`, reason: reason || t.message };
@@ -101,7 +103,7 @@ export function HostStatusFormatter({ enabled, meta, health, onLogs }: Props) {
 							<div className="fw-bold">
 								<T id="host-status.config-error" />
 							</div>
-							{status.nginxErr ? <div className="text-break">{status.nginxErr}</div> : null}
+							<HostNginxError meta={meta} detailClassName="d-block text-break text-secondary" />
 						</li>
 					) : null}
 					{status.problemLocations.map((l) => (
@@ -115,7 +117,7 @@ export function HostStatusFormatter({ enabled, meta, health, onLogs }: Props) {
 								</span>
 							</div>
 							<div className="text-secondary text-break">
-								{l.message || <T id={`location-status.${l.status}.default`} />}
+								<LocationStatusDetail location={l} />
 							</div>
 						</li>
 					))}

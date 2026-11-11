@@ -124,6 +124,10 @@ describe("a host stored with a value that could add nginx directives", () => {
 		const meta = await internalNginx.configure(proxyHostModel, "proxy_host", await row(id));
 		assert.equal(meta.nginx_online, false);
 		await assertOffline(id, /forward host .* is not allowed in nginx config/);
+		// the UI words it from the field, the value is shown as it is
+		const { nginx_details: details } = (await row(id)).meta;
+		assert.equal(details.field, "forward_host");
+		assert.equal(details.detail, JSON.stringify(INJECTED));
 		assert.equal(reloads, 1);
 	});
 
@@ -239,6 +243,9 @@ describe("a host stored with a value that could add nginx directives", () => {
 		);
 		await internalNginx.configure(proxyHostModel, "proxy_host", await row(id));
 		await assertOffline(id, /location path .* is not allowed in nginx config/);
+		const { nginx_details: details } = (await row(id)).meta;
+		assert.equal(details.field, "location_path");
+		assert.equal(details.detail, JSON.stringify("/x { return 200; } location /y"));
 	});
 
 	it("goes offline for a location's access list client address, with the flag kept", async () => {
@@ -260,5 +267,6 @@ describe("a host stored with a value that could add nginx directives", () => {
 		);
 		await internalNginx.configure(proxyHostModel, "proxy_host", await row(id));
 		await assertOffline(id, /location \/x: access list client address/);
+		assert.equal((await row(id)).meta.nginx_details.field, "access_list_client_address");
 	});
 });

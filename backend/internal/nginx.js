@@ -33,7 +33,7 @@ import {
 	isolateFaultyLocations,
 	isVariableHost,
 	locationDnsMarker,
-	MESSAGES as LOCATION_MESSAGES,
+	locationMessage,
 	parseLocationPath,
 	preflightLocation,
 	prepareLocation,
@@ -79,6 +79,8 @@ const HOST_LABELS = {
 // runs a nested configure (DNS lookups, several nginx -t) while holding the lock, which blocks every save.
 // A group of hosts sharing a broken path (see blameUnattributed()) counts once.
 const MAX_HEAL_ITERATIONS = 10;
+// Subject of the conflict error of a host whose regenerated config conflicts, see buildConflictError()
+const REGENERATED_SUBJECT = "The regenerated configuration";
 const TOO_MANY_BROKEN_HOSTS = `Too many broken host configs to repair in one go (more than ${MAX_HEAL_ITERATIONS}). Regenerate all host configs (Settings > Nginx Configuration, or restart NPM), then try again.`;
 // While regenerateAll() runs (it holds the lock): the hosts healOtherHost() repaired or took offline,
 // {host_type, id}. Their state after the final reload is reported, see summariseFinal().
@@ -191,6 +193,28 @@ const hostLabel = (hostType, host) => {
 	return `${label} #${host?.id}${names}`;
 };
 
+// The parts of NginxConfigError.details the UI words the message from (the message itself stays English, for API
+// users and logs): `detail` is the humanised nginx error, shown as it is; `hint_code` names the hint's rule. Null
+// when nginx gave no message.
+const describedError = (humanised) => ({
+	detail: humanised?.text ? sentence(capitalise(humanised.text)) : null,
+	hint_code: humanised?.hint ? humanised.code || null : null,
+});
+
+// The parts of an unsafe_value's details the UI words the message from: `field` names the value (eg.
+// forward_host), `detail` is the value itself, quoted, shown as it is. A value without a field (not one of
+// lib/nginx-values.js's checks) has the English message as `detail`.
+const unsafeValueDetails = (err) =>
+	err.unsafeField ? { field: err.unsafeField, detail: err.unsafeValue } : { field: null, detail: err.message };
+
+const tooManyBrokenDetails = () => ({
+	kind: "nginx_config",
+	scope: "global",
+	reason: "too_many_broken_hosts",
+	max: MAX_HEAL_ITERATIONS,
+	detail: null,
+});
+
 /**
  * @param   {String|null} [saved]  config file of the host the operation saves; null when no host is saved,
  *                                 eg. the startup / reload test, where every repaired host comes from its row
@@ -223,6 +247,8 @@ const describeAside = (entry) => {
 	return {
 		host_type: entry.host_type,
 		host_id: entry.host_id,
+		// the humanised nginx error on its own (not translated), for clients that word the rest themselves
+		detail: humanised ? humanised.text : null,
 		message: sentence(
 			`Nginx rejects the current configuration of ${hostLabel(entry.host_type, { id: entry.host_id })}${
 				humanised ? `: ${humanised.text}` : ""
@@ -765,7 +791,7 @@ const internalNginx = {
 
 		if (failure) {
 			const error = failure.tooMany
-				? new errs.NginxConfigError(TOO_MANY_BROKEN_HOSTS, { kind: "nginx_config", scope: "global" })
+				? new errs.NginxConfigError(TOO_MANY_BROKEN_HOSTS, tooManyBrokenDetails())
 				: failure.conflict
 					? internalNginx.buildConflictError(hostType, host, failure.parsed)
 					: internalNginx.buildConfigError(failure.scope, hostType, host, failure.parsed, configText);
@@ -849,7 +875,13 @@ const internalNginx = {
 		internalNginx.deleteFile(`${filename}.err`);
 		const meta = internalNginx.buildOfflineMeta(host.meta, {
 			message: err.message,
-			details: { kind: "unsafe_value", scope: "host", host_type: hostType, host_id: host.id },
+			details: {
+				kind: "unsafe_value",
+				scope: "host",
+				host_type: hostType,
+				host_id: host.id,
+				...unsafeValueDetails(err),
+			},
 		});
 		await model.query().where("id", host.id).patch({ meta });
 		logger.error(`${hostLabel(hostType, host)} is offline: ${err.message}`);
@@ -1020,6 +1052,9 @@ const internalNginx = {
 				hint:
 					humanised.hint ||
 					"Another host already uses this setting (for example the same listen port with default_server), or the advanced configuration includes another host's config file.",
+				reason: subject === REGENERATED_SUBJECT ? "regenerated_conflict" : "conflict",
+				detail: describedError(parsed.message ? humanised : null).detail,
+				hint_code: humanised.hint ? humanised.code : "conflict",
 			},
 		);
 	},
@@ -1064,7 +1099,16 @@ const internalNginx = {
 		return Promise.all(
 			locations.map(async (raw, index) => {
 				const loc = prepareLocation(raw);
-				const state = { index, path: loc.path, status: "ok", mode: null, message: null, stub: true };
+				const state = {
+					index,
+					path: loc.path,
+					status: "ok",
+					mode: null,
+					code: null,
+					params: null,
+					message: null,
+					stub: true,
+				};
 				const problem = preflightLocation(loc);
 				if (problem) {
 					return Object.assign(state, problem);
@@ -1077,7 +1121,7 @@ const internalNginx = {
 				state.mode = result.mode;
 				state.status = result.status;
 				if (result.status === "unresolved") {
-					state.message = LOCATION_MESSAGES.unresolved(loc.forward_host);
+					Object.assign(state, locationMessage("unresolved", { host: loc.forward_host }));
 				}
 				return state;
 			}),
@@ -1108,7 +1152,7 @@ const internalNginx = {
 			const loc = prepareLocation(host.locations[state.index]);
 			state.mode = "dynamic";
 			state.status = "unresolved";
-			state.message = LOCATION_MESSAGES.unresolved(loc.forward_host);
+			Object.assign(state, locationMessage("unresolved", { host: loc.forward_host }));
 			return true;
 		}
 
@@ -1116,13 +1160,19 @@ const internalNginx = {
 			state.status = "quarantined";
 			state.mode = null;
 			state.stub = true;
-			state.message = LOCATION_MESSAGES.rejected(sentence(humanised.text));
+			Object.assign(
+				state,
+				locationMessage("rejected", { detail: sentence(capitalise(humanised.text)) }, sentence(humanised.text)),
+			);
 			return true;
 		}
 
 		if (state.status === "quarantined" && state.stub) {
 			state.stub = false;
-			state.message = LOCATION_MESSAGES.omitted(sentence(humanised.text));
+			Object.assign(
+				state,
+				locationMessage("omitted", { detail: sentence(capitalise(humanised.text)) }, sentence(humanised.text)),
+			);
 			return true;
 		}
 
@@ -1210,6 +1260,7 @@ const internalNginx = {
 						scope: "other_host",
 						host_type: other.host_type,
 						host_id: other.host_id,
+						...unsafeValueDetails(regenerateError),
 					});
 				} else if (regenerateError?.protectedConflict) {
 					// Its regenerated config conflicts with the regenerated config of a host above it
@@ -1217,7 +1268,7 @@ const internalNginx = {
 						other.host_type,
 						row || { id: other.host_id },
 						regenerateError.parsed || parsed,
-						"The regenerated configuration",
+						REGENERATED_SUBJECT,
 					);
 					error = new errs.NginxConfigError(
 						conflict.message,
@@ -1265,7 +1316,8 @@ const internalNginx = {
 		const meta = _.assign({}, oldMeta, {
 			nginx_online: false,
 			nginx_err: `${prefix}${error.message}`,
-			nginx_details: error.details,
+			// the UI words the prefix itself
+			nginx_details: prefix ? Object.assign({}, error.details, { auto_disabled: true }) : error.details,
 			nginx_checked_at: new Date().toISOString(),
 		});
 		if (states) {
@@ -1293,6 +1345,8 @@ const internalNginx = {
 		const locationPath = location ? `${location.path || ""}`.trim() : null;
 
 		let message;
+		// where the UI says the error is, see the details below
+		let area = scope === "global" ? null : where.area;
 		if (scope === "global") {
 			const managed = parseManagedFile(parsed.file);
 			const fileInfo = parsed.file ? ` in ${parsed.file}${parsed.line ? ` (line ${parsed.line})` : ""}` : "";
@@ -1308,6 +1362,7 @@ const internalNginx = {
 		} else if (!parsed.line && mentionedInAdvanced(host.advanced_config, parsed.message)) {
 			// An error without a line (eg. an unknown variable) that names something the advanced config uses
 			message = `Advanced configuration: ${humanised.text}`;
+			area = "host_advanced";
 		} else {
 			message = capitalise(humanised.text);
 		}
@@ -1324,6 +1379,9 @@ const internalNginx = {
 			location_path: locationPath,
 			nginx_output: parsed.output || null,
 			hint: humanised.hint || null,
+			area: area || null,
+			relative_line: area && area === where.area ? where.relative_line : null,
+			...describedError(parsed.message ? humanised : null),
 		});
 	},
 
@@ -1392,6 +1450,11 @@ const internalNginx = {
 				location_path: null,
 				nginx_output: null,
 				hint: null,
+				reason: "redacted",
+				area: null,
+				relative_line: null,
+				detail: null,
+				hint_code: null,
 			});
 		}
 		return err;
@@ -1506,10 +1569,7 @@ const internalNginx = {
 			throw internalNginx.buildConfigError("global", "default", { id: 0 }, result.parsed, "");
 		}
 		logger.error(TOO_MANY_BROKEN_HOSTS);
-		throw new errs.NginxConfigError(TOO_MANY_BROKEN_HOSTS, {
-			kind: "nginx_config",
-			scope: "global",
-		});
+		throw new errs.NginxConfigError(TOO_MANY_BROKEN_HOSTS, tooManyBrokenDetails());
 	},
 
 	/**
@@ -1588,7 +1648,7 @@ const internalNginx = {
 				if (err instanceof errs.NginxConfigError) {
 					throw new errs.NginxConfigError(
 						`Could not reconfigure the default site. ${err.message}`,
-						err.details,
+						Object.assign({}, err.details, { context: "default_site" }),
 						err,
 					);
 				}

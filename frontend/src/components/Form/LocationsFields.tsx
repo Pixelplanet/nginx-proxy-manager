@@ -16,7 +16,7 @@ import type { NginxLocationStatus, ProxyLocation } from "src/api/backend";
 import { useUpstreamCheck } from "src/hooks";
 import { intl, T } from "src/locale";
 import { isVariableHost, locationDuplicateKey, locationHostPart, normaliseLocationPath } from "src/modules/HostStatus";
-import { LocationStatusBadge, UpstreamCheckBadge, VariableHostBadge } from "../StatusBadges";
+import { LocationStatusBadge, LocationStatusDetail, UpstreamCheckBadge, VariableHostBadge } from "../StatusBadges";
 import { AccessField } from "./AccessField";
 import styles from "./LocationsFields.module.css";
 import { UpstreamField, usePrefillGuard } from "./UpstreamField";
@@ -506,7 +506,7 @@ function LocationCard({
 						<LocationStatusBadge
 							id={`location-status-${row.id}`}
 							status={status.status}
-							message={status.message}
+							location={status}
 						/>
 					) : null}
 					{isEnabled && isVariableHost(locationHostPart(item.forwardHost)) ? (
@@ -590,14 +590,14 @@ function LocationCard({
 							</div>
 						)}
 					</div>
-					{status && status.status !== "ok" && status.message ? (
+					{status && status.status !== "ok" && (status.message || status.code) ? (
 						<div
 							className={cn(
 								"small mb-3",
 								status.status === "quarantined" ? "text-danger" : "text-warning",
 							)}
 						>
-							{status.message}
+							<LocationStatusDetail location={status} />
 						</div>
 					) : null}
 					<div className="row">
