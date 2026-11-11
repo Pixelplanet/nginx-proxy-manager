@@ -14,7 +14,6 @@ import {
 	ForwardHostCheckHint,
 	HasPermission,
 	HostConfigTestResult,
-	keepSavedAdvancedConfig,
 	Loading,
 	LocationsFields,
 	NginxConfigField,
@@ -185,8 +184,10 @@ const ProxyHostModal = EasyModal.create(({ id, prefill, visible, remove }: Props
 		if (!isAdmin) {
 			delete payload.advanced_config;
 			delete payload.advancedConfig;
-			// as the backend matches them: by path
-			payload.locations = keepSavedAdvancedConfig(payload.locations, data?.locations);
+			// Location advanced configs are sent as-is. Non-admins can't edit them (the editor is
+			// hidden), so each one is still the admin-written value and moves with its location
+			// when the path is renamed; the backend matches them by value. Looking them up by
+			// path here would silently drop the config from a renamed location.
 		}
 		return payload;
 	};

@@ -1,10 +1,8 @@
 import _ from "lodash";
 import errs from "../lib/error.js";
 import { castJsonIfNeed } from "../lib/helpers.js";
-import { matchSavedLocations } from "../lib/nginx-locations.js";
 import utils from "../lib/utils.js";
-import proxyHostModel from "../models/proxy_host.js";
-import userPermissionModel from "../models/user_permission.js";
+import proxyHostModel, { scopeToOwnerOrAllowed } from "../models/proxy_host.js";
 import internalAuditLog from "./audit-log.js";
 import internalCertificate from "./certificate.js";
 import internalHost from "./host.js";
@@ -61,17 +59,7 @@ const internalProxyHost = {
 					thisData.advanced_config = "";
 				}
 
-				const isAdmin = access.hasRole?.("admin") || access.token.hasScope("admin");
-				if (!isAdmin && thisData.advanced_config && thisData.advanced_config.trim() !== "") {
-					throw new errs.PermissionError("You do not have permission to modify advanced configuration");
-				}
-				if (
-					!isAdmin &&
-					Array.isArray(thisData.locations) &&
-					thisData.locations.some((loc) => loc?.advanced_config && loc.advanced_config.trim() !== "")
-				) {
-					throw new errs.PermissionError("You do not have permission to modify advanced configuration");
-				}
+				internalHost.assertAdvancedConfigAllowed(access, thisData);
 
 				return proxyHostModel.query().insertAndFetch(thisData).then(utils.omitRow(omissions()));
 			})
@@ -193,28 +181,7 @@ const internalProxyHost = {
 				}
 
 				// Before anything is configured or a certificate is requested
-				const isAdmin = access.hasRole?.("admin") || access.token.hasScope("admin");
-				if (
-					!isAdmin &&
-					typeof thisData.advanced_config !== "undefined" &&
-					thisData.advanced_config !== row.advanced_config
-				) {
-					throw new errs.PermissionError("You do not have permission to modify advanced configuration");
-				}
-				if (!isAdmin && Array.isArray(thisData.locations)) {
-					// Paths are trimmed and regex locations may repeat one, see matchSavedLocations
-					const existingLocations = matchSavedLocations(thisData.locations, row.locations);
-					for (const [i, loc] of thisData.locations.entries()) {
-						const existingAdv = existingLocations[i]?.advanced_config || "";
-						if (typeof loc.advanced_config === "undefined") {
-							loc.advanced_config = existingAdv;
-						} else if ((loc.advanced_config || "") !== existingAdv) {
-							throw new errs.PermissionError(
-								"You do not have permission to modify advanced configuration",
-							);
-						}
-					}
-				}
+				internalHost.assertAdvancedConfigAllowed(access, thisData, row);
 
 				if (createCertificate) {
 					// Check that nginx accepts the rest of the update before the certificate is requested
@@ -316,14 +283,7 @@ const internalProxyHost = {
 					.first();
 
 				if (access_data.permission_visibility !== "all") {
-					const permissions = access.getPermissions ? access.getPermissions() : {};
-					const allowedIds = permissions.meta?.proxy_host_ids || permissions.meta?.proxyHostIds || [];
-					query.andWhere((builder) => {
-						builder.where("owner_user_id", access.token.getUserId(1));
-						if (allowedIds.length > 0) {
-							builder.orWhereIn("id", allowedIds);
-						}
-					});
+					scopeToOwnerOrAllowed(query, access.token.getUserId(1), access.getPermissions?.()?.meta);
 				}
 
 				if (typeof thisData.expand !== "undefined" && thisData.expand !== null) {
@@ -468,14 +428,7 @@ const internalProxyHost = {
 			.orderBy(castJsonIfNeed("domain_names"), "ASC");
 
 		if (accessData.permission_visibility !== "all") {
-			const permissions = access.getPermissions ? access.getPermissions() : {};
-			const allowedIds = permissions.meta?.proxy_host_ids || permissions.meta?.proxyHostIds || [];
-			query.andWhere((builder) => {
-				builder.where("owner_user_id", access.token.getUserId(1));
-				if (allowedIds.length > 0) {
-					builder.orWhereIn("id", allowedIds);
-				}
-			});
+			scopeToOwnerOrAllowed(query, access.token.getUserId(1), access.getPermissions?.()?.meta);
 		}
 
 		// Query is used for searching
@@ -501,20 +454,14 @@ const internalProxyHost = {
 	 *
 	 * @param   {Number}  user_id
 	 * @param   {String}  visibility
+	 * @param   {Object}  [permissionsMeta]  the user's permissions meta, as already loaded by access
 	 * @returns {Promise}
 	 */
-	getCount: async (user_id, visibility) => {
+	getCount: async (user_id, visibility, permissionsMeta) => {
 		const query = proxyHostModel.query().count("id as count").where("is_deleted", 0);
 
 		if (visibility !== "all") {
-			const perm = await userPermissionModel.query().where("user_id", user_id).first();
-			const allowedIds = perm?.meta?.proxy_host_ids || perm?.meta?.proxyHostIds || [];
-			query.andWhere((builder) => {
-				builder.where("owner_user_id", user_id);
-				if (allowedIds.length > 0) {
-					builder.orWhereIn("id", allowedIds);
-				}
-			});
+			scopeToOwnerOrAllowed(query, user_id, permissionsMeta);
 		}
 
 		const row = await query.first();

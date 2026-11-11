@@ -34,6 +34,7 @@ await db("user").insert({
 const access = {
 	can: async () => ({ permission_visibility: "all" }),
 	hasRole: (role) => role === "admin",
+	isAdmin: () => true,
 	getPermissions: () => ({ visibility: "all" }),
 	token: { getUserId: () => 1, hasScope: (scope) => scope === "admin" },
 };
@@ -50,6 +51,7 @@ const access = {
 const userAccess = ({ userId = 1, visibility = "all", meta = null } = {}) => ({
 	can: async () => ({ permission_visibility: visibility }),
 	hasRole: () => false,
+	isAdmin: () => false,
 	getPermissions: () => ({ visibility, meta }),
 	token: { getUserId: () => userId, hasScope: () => false },
 });

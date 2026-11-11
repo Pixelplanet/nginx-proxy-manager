@@ -26,6 +26,7 @@ import { createIncludeReader } from "../lib/nginx-includes.js";
 import { createLock } from "../lib/nginx-lock.js";
 import { normaliseHostTypes, summariseFinal } from "../lib/nginx-regenerate.js";
 import {
+	assertLocationsRenderable,
 	CONFIG_VERSION_MARKER,
 	chooseLocationMode,
 	describeConfigLine,
@@ -41,6 +42,7 @@ import {
 	renderLocation,
 } from "../lib/nginx-locations.js";
 import { createReloadWaiter } from "../lib/nginx-reload.js";
+import { assertAccessListRenderable, assertHostRenderable, isTokenSafe, unsafeValueError } from "../lib/nginx-values.js";
 import { createModeResolver, toBool } from "../lib/upstream-dns.js";
 import utils from "../lib/utils.js";
 import { debug, nginx as logger } from "../logger.js";
@@ -540,6 +542,14 @@ const internalNginx = {
 			try {
 				configText = await internalNginx.generateConfig(hostType, host, { locationStates: states, modeResolver });
 			} catch (err) {
+				if (err.unsafeNginxValue && !opts.dryRun) {
+					// A stored value that could add nginx directives (saved before the API refused such values, see
+					// lib/nginx-values.js). Nothing was written for it, and the previous config is not put back:
+					// it may hold the same value. The change is kept and the host is offline until it is fixed.
+					return internalNginx.takeUnsafeHostOffline(model, hostType, host, filename, err, {
+						reload: opts.reload || (opts.applyRepairs && heals > 0),
+					});
+				}
 				await internalNginx.restoreHost(model, host, filename, previous, previousErr, heals > 0);
 				if (opts.applyRepairs && heals > 0) {
 					await internalNginx.applyRepairs(hostType, host);
@@ -816,6 +826,45 @@ const internalNginx = {
 			}
 		}
 		await model.query().where("id", host.id).patch({ meta });
+		return meta;
+	},
+
+	/**
+	 * A host has a stored value that can't be written into its config safely, see lib/nginx-values.js: removes
+	 * its config files and marks it offline. With opts.reload nginx is reloaded, so it stops running the removed
+	 * config. Never throws for the reload, the host's status is what the caller reports. Only call this while
+	 * holding the lock.
+	 *
+	 * @param   {Object}  model
+	 * @param   {String}  hostType
+	 * @param   {Object}  host
+	 * @param   {String}  filename  the host's config file
+	 * @param   {Error}   err       the error of generateConfig(), with err.unsafeNginxValue
+	 * @param   {Object}  opts
+	 * @param   {Boolean} opts.reload
+	 * @returns {Promise<Object>} the new meta
+	 */
+	takeUnsafeHostOffline: async (model, hostType, host, filename, err, opts) => {
+		internalNginx.deleteFile(filename);
+		internalNginx.deleteFile(`${filename}.err`);
+		const meta = internalNginx.buildOfflineMeta(host.meta, {
+			message: err.message,
+			details: { kind: "unsafe_value", scope: "host", host_type: hostType, host_id: host.id },
+		});
+		await model.query().where("id", host.id).patch({ meta });
+		logger.error(`${hostLabel(hostType, host)} is offline: ${err.message}`);
+		if (opts.reload) {
+			try {
+				const outcome = await internalNginx.reloadNginx();
+				if (outcome?.rejected) {
+					logger.error(`${hostLabel(hostType, host)}: nginx did not apply the removal of its config`);
+				}
+			} catch (reloadErr) {
+				logger.error(
+					`${hostLabel(hostType, host)}: could not reload nginx after removing its config: ${reloadErr.message}`,
+				);
+			}
+		}
 		return meta;
 	},
 
@@ -1132,12 +1181,16 @@ const internalNginx = {
 			// database rows) takes this host, which was broken already, offline instead, see configureHost().
 			isAbort: (err) => err?.protectedConflict === true && err.involvesSaved === true,
 			regenerate: async () => {
-				await internalNginx.configureHost(model, other.host_type, row, {
+				const meta = await internalNginx.configureHost(model, other.host_type, row, {
 					reload: false,
 					depth: (depth || 0) + 1,
 					protect,
 					repair,
 				});
+				if (meta?.nginx_details?.kind === "unsafe_value") {
+					// Its config was removed and it is marked offline, see takeUnsafeHostOffline()
+					return;
+				}
 				logger.warn(
 					`Regenerated the nginx config of ${hostLabel(other.host_type, row)} because nginx rejected it`,
 				);
@@ -1150,7 +1203,15 @@ const internalNginx = {
 				const regenerated =
 					regenerateError instanceof errs.NginxConfigError && regenerateError.details?.scope === "host";
 				let error;
-				if (regenerateError?.protectedConflict) {
+				if (regenerateError?.unsafeNginxValue) {
+					// A stored value that can't be written into its config, see lib/nginx-values.js
+					error = new errs.NginxConfigError(regenerateError.message, {
+						kind: "unsafe_value",
+						scope: "other_host",
+						host_type: other.host_type,
+						host_id: other.host_id,
+					});
+				} else if (regenerateError?.protectedConflict) {
 					// Its regenerated config conflicts with the regenerated config of a host above it
 					const conflict = internalNginx.buildConflictError(
 						other.host_type,
@@ -1277,6 +1338,9 @@ const internalNginx = {
 	canSeeHost: async (access, hostType, hostId) => {
 		try {
 			const permission = hostType === "stream" ? "streams" : `${hostType}s`;
+			if (access.isAdmin?.()) {
+				return true;
+			}
 			const accessData = await access.can(`${permission}:list`);
 			if (
 				accessData === true ||
@@ -1288,11 +1352,9 @@ const internalNginx = {
 			if (HOST_MODELS[hostType]) {
 				const row = await HOST_MODELS[hostType].query().where("id", hostId).first();
 				// Proxy hosts can also be shared with a user explicitly, see permissions.meta.proxy_host_ids
+				// (as scopeToOwnerOrAllowed() in models/proxy_host.js reads it)
 				const permissions = access.getPermissions ? access.getPermissions() : {};
-				const allowedIds =
-					hostType === "proxy_host"
-						? permissions?.meta?.proxy_host_ids || permissions?.meta?.proxyHostIds || []
-						: [];
+				const allowedIds = hostType === "proxy_host" ? permissions?.meta?.proxy_host_ids || [] : [];
 				return (
 					!!row &&
 					(row.owner_user_id === access.token.getUserId(1) ||
@@ -1613,7 +1675,15 @@ const internalNginx = {
 						.first();
 				}
 				if (locationAccessList) {
+					assertAccessListRenderable(`Proxy Host #${host.id} location ${locationCopy.path}`, locationAccessList);
 					locationCopy.access_list = locationAccessList;
+				} else if (locationCopy.access_list_id > 0 && locationCopy.access_list_id !== host.access_list?.id) {
+					// The location names its own list but it's gone. Don't fall back to the
+					// host's (possibly less restrictive) list; _access.conf denies all instead.
+					logger.error(
+						`Proxy Host #${host.id} location "${locationCopy.path}" references Access List #${locationCopy.access_list_id} which does not exist, all access will be denied`,
+					);
+					locationCopy.access_list = null;
 				} else {
 					locationCopy.access_list_id = host.access_list_id;
 					locationCopy.access_list = host.access_list;
@@ -1641,6 +1711,13 @@ const internalNginx = {
 		const nice_host_type = internalNginx.getFileFriendlyHostType(host_type);
 
 		await internalNginx.loadRenderRelations(nice_host_type, host);
+
+		// Values are written into the config as-is; refuse any that could add directives. Locations are
+		// checked as they are rendered (trimmed), see assertLocationsRenderable().
+		assertHostRenderable(nice_host_type, nice_host_type === "proxy_host" ? { ...host, locations: [] } : host);
+		if (nice_host_type === "proxy_host") {
+			assertLocationsRenderable(`proxy host #${host.id}`, host.locations);
+		}
 
 		debug(logger, `Generating ${nice_host_type} Config:`, JSON.stringify(host, null, 2));
 
@@ -1695,6 +1772,10 @@ const internalNginx = {
 				host.locations = await internalNginx.renderLocations(host, states);
 			} catch (err) {
 				debug(logger, `Could not render locations for ${filename}:`, err.message);
+				if (err.unsafeNginxValue) {
+					// Keep the flag, configureHost() handles these
+					throw err;
+				}
 				throw new errs.ConfigurationError(err.message);
 			}
 		} else if (Array.isArray(host.locations)) {
@@ -1752,8 +1833,9 @@ const internalNginx = {
 			}
 
 			if (!host.access_list) {
-				logger.warn(
-					`Proxy Host #${host.id} references Access List #${host.access_list_id} which does not exist`,
+				// _access.conf renders "deny all" when the list is missing, so fail closed
+				logger.error(
+					`Proxy Host #${host.id} references Access List #${host.access_list_id} which does not exist, all access will be denied`,
 				);
 			} else if (!host.access_list.clients.length && !host.access_list.items.length) {
 				logger.warn(
@@ -1774,6 +1856,15 @@ const internalNginx = {
 	generateLetsEncryptRequestConfig: (certificate) => {
 		debug(logger, "Generating LetsEncrypt Request Config:", certificate);
 		const renderEngine = utils.getRenderEngine();
+
+		const unsafe = (certificate.domain_names || []).find((name) => !isTokenSafe(name));
+		if (typeof unsafe !== "undefined") {
+			return Promise.reject(
+				unsafeValueError(
+					`Certificate #${certificate.id}: domain name ${JSON.stringify(unsafe)} is not allowed`,
+				),
+			);
+		}
 
 		return new Promise((resolve, reject) => {
 			let template = null;

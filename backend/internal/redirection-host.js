@@ -59,10 +59,7 @@ const internalRedirectionHost = {
 					thisData.advanced_config = "";
 				}
 
-				const isAdmin = access.hasRole?.("admin") || access.token.hasScope("admin");
-				if (!isAdmin && thisData.advanced_config && thisData.advanced_config.trim() !== "") {
-					throw new errs.PermissionError("You do not have permission to modify advanced configuration");
-				}
+				internalHost.assertAdvancedConfigAllowed(access, thisData);
 
 				return redirectionHostModel.query().insertAndFetch(thisData).then(utils.omitRow(omissions()));
 			})
@@ -184,14 +181,7 @@ const internalRedirectionHost = {
 				}
 
 				// Before anything is configured or a certificate is requested
-				const isAdmin = access.hasRole?.("admin") || access.token.hasScope("admin");
-				if (
-					!isAdmin &&
-					typeof thisData.advanced_config !== "undefined" &&
-					thisData.advanced_config !== row.advanced_config
-				) {
-					throw new errs.PermissionError("You do not have permission to modify advanced configuration");
-				}
+				internalHost.assertAdvancedConfigAllowed(access, thisData, row);
 
 				if (createCertificate) {
 					// Check that nginx accepts the rest of the update before the certificate is requested
