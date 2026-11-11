@@ -1,4 +1,4 @@
-import { IconBrandDocker, IconHistory, IconNetwork, IconRefresh } from "@tabler/icons-react";
+import { IconBrandDocker, IconHelp, IconHistory, IconNetwork, IconRefresh, IconWorld } from "@tabler/icons-react";
 import cn from "classnames";
 import {
 	createContext,
@@ -22,7 +22,7 @@ import {
 	type SingleValue,
 } from "react-select";
 import CreatableSelect from "react-select/creatable";
-import type { UpstreamCandidate, UpstreamCandidates, UpstreamSource } from "src/api/backend";
+import type { UpstreamCandidate, UpstreamCandidates, UpstreamSource, UpstreamSuggestion } from "src/api/backend";
 import { useUpstreamCandidates } from "src/hooks";
 import { intl, T } from "src/locale";
 import { showHelpModal } from "src/modals";
@@ -72,24 +72,49 @@ export const groupCandidates = (items: UpstreamCandidate[] = []): GroupBase<Upst
 	})).filter((g) => g.options.length > 0);
 
 /**
+ * What a pick writes into the port and scheme fields. `null` empties the port: the new candidate has no port to
+ * offer, and the one in the field came from an earlier pick.
+ */
+export interface PrefillChange {
+	port?: number | null;
+	scheme?: "http" | "https";
+}
+
+/**
  * The port and scheme of a prefill that may actually be written: only fields
  * that are empty, still hold their saved (initial) value, or still hold what an
  * earlier pick filled in. A port or scheme the user set themselves is kept.
+ * When the new candidate has no port or scheme but the field still holds what an
+ * earlier pick filled in, that is reset to the saved value (scheme: http, port:
+ * empty when there is none), so it doesn't stay with a different target.
  */
 export const allowedPrefill = (
 	prefill: UpstreamPrefill,
 	current: { port?: unknown; scheme?: unknown },
 	initial: { port?: unknown; scheme?: unknown },
 	previous: UpstreamPrefill = {},
-): UpstreamPrefill => {
+): PrefillChange => {
 	const same = (a: unknown, b: unknown) => typeof b !== "undefined" && b !== null && `${a}` === `${b}`;
+	const isEmpty = (c: unknown) => c === undefined || c === null || c === "";
 	const isFree = (key: "port" | "scheme") => {
 		const c = current[key];
-		return c === undefined || c === null || c === "" || same(c, initial[key]) || same(c, previous[key]);
+		return isEmpty(c) || same(c, initial[key]) || same(c, previous[key]);
 	};
-	const result: UpstreamPrefill = {};
-	if (prefill.port && isFree("port")) result.port = prefill.port;
-	if (prefill.scheme && isFree("scheme")) result.scheme = prefill.scheme;
+	// still what an earlier pick filled in, and not the saved value
+	const isLeftOver = (key: "port" | "scheme") =>
+		!isEmpty(current[key]) && same(current[key], previous[key]) && !same(current[key], initial[key]);
+	const result: PrefillChange = {};
+	if (prefill.port && isFree("port")) {
+		result.port = prefill.port;
+	} else if (!prefill.port && isLeftOver("port")) {
+		const p = Number(initial.port);
+		result.port = Number.isInteger(p) && p > 0 ? p : null;
+	}
+	if (prefill.scheme && isFree("scheme")) {
+		result.scheme = prefill.scheme;
+	} else if (!prefill.scheme && isLeftOver("scheme")) {
+		result.scheme = initial.scheme === "https" ? "https" : "http";
+	}
 	return result;
 };
 
@@ -103,10 +128,156 @@ export function usePrefillGuard() {
 			initial: { port?: unknown; scheme?: unknown },
 		) => {
 			const result = allowedPrefill(prefill, current, initial, previous.current);
-			previous.current = { ...previous.current, ...result };
+			const next: UpstreamPrefill = { ...previous.current };
+			if (result.port) next.port = result.port;
+			else if (result.port === null) delete next.port;
+			if (result.scheme) next.scheme = result.scheme;
+			previous.current = next;
 			return result;
 		},
 		[],
+	);
+}
+
+// The proxy host switches a container's npm.* labels can turn on
+export type LabelToggle = "allowWebsocketUpgrade" | "blockExploits" | "cachingEnabled";
+export const LABEL_TOGGLES: readonly LabelToggle[] = ["allowWebsocketUpgrade", "blockExploits", "cachingEnabled"];
+
+export type ExistingHostType = NonNullable<UpstreamSuggestion["existingHostType"]>;
+
+export interface ExistingHost {
+	id: number;
+	type: ExistingHostType;
+}
+
+/** A host that already serves one of the label's domains, other than the one being edited */
+export const existingHostOf = (s: UpstreamSuggestion | undefined, hostId?: number | null): ExistingHost | null => {
+	if (!s?.existingHostId) return null;
+	const type = s.existingHostType || "proxy_host";
+	if (type === "proxy_host" && hostId && s.existingHostId === hostId) return null;
+	return { id: s.existingHostId, type };
+};
+
+/** What picking a labelled container fills in on a proxy host, besides the port and scheme */
+export interface LabelPrefill {
+	domainNames?: string[];
+	toggles: Partial<Record<LabelToggle, boolean>>;
+	// npm.http2: turned on once a certificate is picked (a new host has none, and HTTP/2 needs one)
+	http2Support?: boolean;
+	// the label's domains are taken: not filled in
+	existingHost: ExistingHost | null;
+	// the domains of the npm.domain label
+	labelDomains: string[];
+	// npm.domain entries the domain names field would refuse
+	ignoredDomains: string[];
+}
+
+export interface LabelPrefillForm {
+	// a host that isn't saved yet: only then are domains and switches filled in
+	isNew: boolean;
+	domainNames?: unknown;
+	// switches the user changed in the form
+	touched: ReadonlySet<string>;
+}
+
+const domainList = (v: unknown): string[] => (Array.isArray(v) ? v.map((d) => `${d}`.trim()).filter(Boolean) : []);
+const sameDomains = (a: string[], b: string[]) => {
+	const x = a.map((d) => d.toLowerCase()).sort();
+	const y = b.map((d) => d.toLowerCase()).sort();
+	return x.length === y.length && x.every((d, i) => d === y[i]);
+};
+
+/**
+ * The domain names and switches a container's labels fill into a proxy host form. Only free fields are
+ * filled: the domain names when the field is empty (or still holds what an earlier pick filled in, which is
+ * cleared when this container has no usable domains) and none of the label's domains already has a host, the
+ * switches when the user hasn't changed them. A candidate without labels (a DNS or history entry) counts as a
+ * container with no labels: it drops the domains an earlier pick filled in and turns the untouched switches
+ * off again. A host that is being edited keeps its domains and switches.
+ */
+export const labelPrefill = (
+	s: UpstreamSuggestion | undefined,
+	form: LabelPrefillForm,
+	previousDomains: string[] = [],
+): LabelPrefill => {
+	const none: LabelPrefill = { toggles: {}, existingHost: null, labelDomains: [], ignoredDomains: [] };
+	if (!form.isNew) return none;
+	const existingHost = existingHostOf(s);
+	const labelDomains = s?.domainNames || [];
+	const current = domainList(form.domainNames);
+	const fromEarlierPick = current.length > 0 && previousDomains.length > 0 && sameDomains(current, previousDomains);
+	const result: LabelPrefill = {
+		...none,
+		existingHost,
+		labelDomains: [...labelDomains],
+		ignoredDomains: [...(s?.ignoredDomains || [])],
+	};
+	if (labelDomains.length && !existingHost && (!current.length || fromEarlierPick)) {
+		result.domainNames = [...labelDomains];
+	} else if (fromEarlierPick) {
+		// another container's domains: they don't belong to this one
+		result.domainNames = [];
+	}
+	for (const key of LABEL_TOGGLES) {
+		if (!form.touched.has(key)) result.toggles[key] = !!s?.[key];
+	}
+	result.http2Support = !!s?.http2Support;
+	return result;
+};
+
+/** `labelPrefill` that remembers the domains it filled in, so a later pick may replace them */
+export function useLabelPrefill() {
+	const previous = useRef<string[]>([]);
+	return useCallback((s: UpstreamSuggestion | undefined, form: LabelPrefillForm) => {
+		const result = labelPrefill(s, form, previous.current);
+		if (result.domainNames) previous.current = result.domainNames;
+		return result;
+	}, []);
+}
+
+interface LabelHintProps {
+	prefill: LabelPrefill | null;
+	onOpen: (host: ExistingHost) => void;
+}
+
+/**
+ * Under the domain names after a labelled container was picked: why its domains weren't filled in (another
+ * host has them; a proxy host can be opened instead, a redirection or 404 host has to be changed first), and
+ * the npm.domain entries that were left out.
+ */
+export function LabelPrefillHint({ prefill, onOpen }: LabelHintProps) {
+	if (!prefill || (!prefill.existingHost && !prefill.ignoredDomains.length)) return null;
+	const existing = prefill.existingHost;
+	return (
+		<div className="small mt-n2 mb-3" data-testid="label-hint">
+			{existing ? (
+				<div className="text-warning" data-testid="label-existing-host">
+					{/* a redirection or 404 host: "used by ...: change or remove it first" */}
+					<T
+						id={existing.type === "proxy_host" ? "docker-labels.exists" : "docker-labels.used-by"}
+						data={{ type: existing.type }}
+					/>
+					. <T id="docker-labels.not-filled" data={{ domains: prefill.labelDomains.join(", ") }} />{" "}
+					<button
+						type="button"
+						className="btn btn-link btn-sm p-0 align-baseline"
+						onClick={() => onOpen(existing)}
+						data-testid="open-existing"
+					>
+						<T id="docker-labels.open" />
+					</button>
+				</div>
+			) : null}
+			{prefill.ignoredDomains.length ? (
+				<div
+					className="text-warning text-break"
+					title={intl.formatMessage({ id: "docker-labels.ignored-hint" })}
+					data-testid="ignored-domains"
+				>
+					<T id="docker-labels.ignored" data={{ domains: prefill.ignoredDomains.join(", ") }} />
+				</div>
+			) : null}
+		</div>
 	);
 }
 
@@ -141,6 +312,54 @@ const NavigatedContext = createContext(false);
 // Called right before an option is picked by a click, so the pick is allowed
 const OptionClickContext = createContext<() => void>(() => {});
 
+// Set for a proxy host's forward host: options show the domains of their npm.domain label and whether
+// another host already has them. `hostId` is the host being edited, which may have them itself.
+interface LabelInfo {
+	hostId?: number | null;
+}
+const LabelInfoContext = createContext<LabelInfo | null>(null);
+
+function OptionLabels({ s }: { s: UpstreamSuggestion }) {
+	const info = useContext(LabelInfoContext);
+	if (!info || !s.domainNames.length) return null;
+	return (
+		<div className="text-secondary small ps-3 text-break" data-testid="option-domains">
+			<IconWorld size={12} className="me-1" />
+			{s.domainNames.join(", ")}
+		</div>
+	);
+}
+
+function OptionIgnored({ s }: { s: UpstreamSuggestion }) {
+	const info = useContext(LabelInfoContext);
+	if (!info || !s.ignoredDomains?.length) return null;
+	return (
+		<div
+			className="text-warning small ps-3 text-break"
+			title={intl.formatMessage({ id: "docker-labels.ignored-hint" })}
+			data-testid="option-ignored-domains"
+		>
+			<T id="docker-labels.ignored" data={{ domains: s.ignoredDomains.join(", ") }} />
+		</div>
+	);
+}
+
+function ExistingHostBadge({ s }: { s: UpstreamSuggestion }) {
+	const info = useContext(LabelInfoContext);
+	const existing = info ? existingHostOf(s, info.hostId) : null;
+	if (!existing) return null;
+	return (
+		<span
+			className="badge bg-yellow-lt ms-2 text-nowrap"
+			title={intl.formatMessage({ id: "docker-labels.exists" }, { type: existing.type })}
+			data-testid="existing-host-badge"
+			data-type={existing.type}
+		>
+			<T id="docker-labels.badge" />
+		</span>
+	);
+}
+
 const Option = (props: OptionProps<UpstreamOption, false, GroupBase<UpstreamOption>>) => {
 	const navigated = useContext(NavigatedContext);
 	const allowClick = useContext(OptionClickContext);
@@ -166,20 +385,27 @@ const Option = (props: OptionProps<UpstreamOption, false, GroupBase<UpstreamOpti
 	].filter(Boolean);
 	return (
 		<components.Option {...props} innerProps={innerProps} isFocused={isFocused}>
-			<div className="d-flex align-items-center">
+			{/* badges wrap onto the next line in a narrow menu instead of squeezing the host name */}
+			<div className="d-flex flex-wrap align-items-center">
 				<span className="me-1">{SOURCE_ICON[c.source]}</span>
 				<strong className="text-break">{c.host}</strong>
 				{c.state ? (
 					<span
-						className={cn("badge ms-2", c.state === "running" ? "bg-green-lt" : "bg-secondary-lt")}
+						className={cn(
+							"badge ms-2 text-nowrap",
+							c.state === "running" ? "bg-green-lt" : "bg-secondary-lt",
+						)}
 						data-state={c.state}
 					>
 						{c.state}
 					</span>
 				) : null}
+				{c.suggestion ? <ExistingHostBadge s={c.suggestion} /> : null}
 			</div>
 			{c.label && c.label !== c.host ? <div className="text-secondary small ps-3">{c.label}</div> : null}
+			{c.suggestion ? <OptionLabels s={c.suggestion} /> : null}
 			{extra.length ? <div className="text-secondary small ps-3">{extra.join(" · ")}</div> : null}
+			{c.suggestion ? <OptionIgnored s={c.suggestion} /> : null}
 		</components.Option>
 	);
 };
@@ -204,7 +430,8 @@ const MenuFooterContext = createContext<MenuFooterInfo>({ dockerDisabled: false 
 // from the input, or the menu closes before the click lands.
 const keepFocus = (e: { preventDefault: () => void }) => e.preventDefault();
 
-function DockerHelpLink() {
+// Opens the in-app Docker discovery help (setup and the npm.* label reference)
+function DockerHelpLink({ labels = false }: { labels?: boolean }) {
 	return (
 		<button
 			type="button"
@@ -212,9 +439,30 @@ function DockerHelpLink() {
 			tabIndex={-1}
 			onMouseDown={keepFocus}
 			onClick={() => showHelpModal("DockerDiscovery", "lime")}
-			data-testid="docker-help-link"
+			data-testid={labels ? "docker-labels-link" : "docker-help-link"}
 		>
-			<T id="upstream.docker-help" />
+			<T id={labels ? "upstream.docker-labels" : "upstream.docker-help"} />
+		</button>
+	);
+}
+
+/**
+ * Help icon for a field label: opens the Docker discovery help with the npm.* label reference. Unlike the links in
+ * the dropdown footer it is a normal Tab stop, so the reference can be reached without a mouse.
+ */
+export function DockerLabelsHelp() {
+	const text = intl.formatMessage({ id: "upstream.docker-labels" });
+	return (
+		<button
+			type="button"
+			// not a .btn: its height would push the label text below the other labels of the row
+			className="border-0 bg-transparent p-0 ms-1 lh-1 align-text-top text-secondary"
+			title={text}
+			aria-label={text}
+			onClick={() => showHelpModal("DockerDiscovery", "lime")}
+			data-testid="docker-labels-help"
+		>
+			<IconHelp size={16} />
 		</button>
 	);
 }
@@ -237,7 +485,9 @@ function MenuList(props: MenuListProps<UpstreamOption, false, GroupBase<Upstream
 							<T id="upstream.docker-unavailable" data={{ reason: dockerError }} /> <DockerHelpLink />
 						</span>
 					) : (
-						<T id="upstream.free-text" />
+						<>
+							<T id="upstream.free-text" /> <DockerHelpLink labels />
+						</>
 					)}
 				</span>
 				{onRefresh ? (
@@ -274,6 +524,9 @@ interface Props {
 	isInvalid?: boolean;
 	// For tests and storybook-like usage; normally fetched lazily on first use
 	candidates?: UpstreamCandidates;
+	// A proxy host's forward host: show the label domains of the containers and whether they have a host
+	// already. Fetches fresh suggestions when the field is first used, since saving a host changes the latter.
+	labels?: LabelInfo;
 }
 
 /**
@@ -292,9 +545,10 @@ export function UpstreamField({
 	placeholder,
 	isInvalid,
 	candidates,
+	labels,
 }: Props) {
 	const [wanted, setWanted] = useState(false);
-	const query = useUpstreamCandidates(wanted && !candidates);
+	const query = useUpstreamCandidates(wanted && !candidates, labels ? { staleTime: 0 } : undefined);
 	const data = candidates ?? query.data;
 	const [input, setInput] = useState(value || "");
 	const [menuIsOpen, setMenuIsOpen] = useState(false);
@@ -411,73 +665,77 @@ export function UpstreamField({
 
 	return (
 		<MenuFooterContext.Provider value={footer}>
-			<NavigatedContext.Provider value={navigated}>
-				<OptionClickContext.Provider value={allowClick}>
-					<div className={cn({ "is-invalid": isInvalid })}>
-						<CreatableSelect<UpstreamOption, false, GroupBase<UpstreamOption>>
-							inputId={id}
-							className={cn("react-select-container upstream-field", { "is-invalid": isInvalid })}
-							classNamePrefix="react-select"
-							options={groups}
-							value={selected}
-							inputValue={input}
-							// The typed text *is* the value, so it's shown as input text rather than as a
-							// selected chip, and stays editable.
-							controlShouldRenderValue={false}
-							isClearable
-							isLoading={!candidates && query.isFetching}
-							placeholder={placeholder}
-							components={{ Option, MenuList, Input }}
-							menuIsOpen={menuIsOpen}
-							onMenuOpen={() => {
-								setWanted(true);
-								setMenuIsOpen(true);
-								// When typing opens the menu this is the text before the keystroke
-								setOpenedWith(input);
-							}}
-							onMenuClose={() => {
-								setMenuIsOpen(false);
-								setNavigated(false);
-								setOpenedWith(null);
-							}}
-							onFocus={() => setWanted(true)}
-							onBlur={onBlur}
-							onKeyDown={handleKeyDown}
-							// Tab moves on to the next field and never replaces the typed text
-							tabSelectsValue={false}
-							filterOption={filterOption}
-							onInputChange={(v, meta) => {
-								// Ignore the resets react-select does on blur / menu close / select
-								if (meta.action === "input-change") {
+			<LabelInfoContext.Provider value={labels ?? null}>
+				<NavigatedContext.Provider value={navigated}>
+					<OptionClickContext.Provider value={allowClick}>
+						<div className={cn({ "is-invalid": isInvalid })}>
+							<CreatableSelect<UpstreamOption, false, GroupBase<UpstreamOption>>
+								inputId={id}
+								className={cn("react-select-container upstream-field", { "is-invalid": isInvalid })}
+								classNamePrefix="react-select"
+								options={groups}
+								value={selected}
+								inputValue={input}
+								// The typed text *is* the value, so it's shown as input text rather than as a
+								// selected chip, and stays editable.
+								controlShouldRenderValue={false}
+								isClearable
+								isLoading={!candidates && query.isFetching}
+								placeholder={placeholder}
+								components={{ Option, MenuList, Input }}
+								menuIsOpen={menuIsOpen}
+								onMenuOpen={() => {
+									setWanted(true);
+									setMenuIsOpen(true);
+									// When typing opens the menu this is the text before the keystroke
+									setOpenedWith(input);
+								}}
+								onMenuClose={() => {
+									setMenuIsOpen(false);
 									setNavigated(false);
-									setValue(v);
+									setOpenedWith(null);
+								}}
+								onFocus={() => setWanted(true)}
+								onBlur={onBlur}
+								onKeyDown={handleKeyDown}
+								// Tab moves on to the next field and never replaces the typed text
+								tabSelectsValue={false}
+								filterOption={filterOption}
+								onInputChange={(v, meta) => {
+									// Ignore the resets react-select does on blur / menu close / select
+									if (meta.action === "input-change") {
+										setNavigated(false);
+										setValue(v);
+									}
+								}}
+								onChange={handleChange}
+								onCreateOption={(v) => {
+									if (takePick()) setValue(v.trim());
+								}}
+								formatCreateLabel={(v) =>
+									intl.formatMessage({ id: "upstream.use-value" }, { value: v })
 								}
-							}}
-							onChange={handleChange}
-							onCreateOption={(v) => {
-								if (takePick()) setValue(v.trim());
-							}}
-							formatCreateLabel={(v) => intl.formatMessage({ id: "upstream.use-value" }, { value: v })}
-							isValidNewOption={(v, _selected, options) => {
-								const t = v.trim();
-								if (!t || t === value) return false;
-								return !options.some(
-									(o: any) => o.value === t || o.options?.some((i: any) => i.value === t),
-								);
-							}}
-							noOptionsMessage={() => intl.formatMessage({ id: "upstream.no-options" })}
-							loadingMessage={() => intl.formatMessage({ id: "upstream.loading" })}
-							styles={{
-								option: (base) => ({ ...base, height: "100%" }),
-								control: (base) =>
-									isInvalid
-										? { ...base, borderColor: "var(--tblr-form-invalid-border-color)" }
-										: base,
-							}}
-						/>
-					</div>
-				</OptionClickContext.Provider>
-			</NavigatedContext.Provider>
+								isValidNewOption={(v, _selected, options) => {
+									const t = v.trim();
+									if (!t || t === value) return false;
+									return !options.some(
+										(o: any) => o.value === t || o.options?.some((i: any) => i.value === t),
+									);
+								}}
+								noOptionsMessage={() => intl.formatMessage({ id: "upstream.no-options" })}
+								loadingMessage={() => intl.formatMessage({ id: "upstream.loading" })}
+								styles={{
+									option: (base) => ({ ...base, height: "100%" }),
+									control: (base) =>
+										isInvalid
+											? { ...base, borderColor: "var(--tblr-form-invalid-border-color)" }
+											: base,
+								}}
+							/>
+						</div>
+					</OptionClickContext.Provider>
+				</NavigatedContext.Provider>
+			</LabelInfoContext.Provider>
 		</MenuFooterContext.Provider>
 	);
 }
