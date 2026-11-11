@@ -17,4 +17,4 @@ Die Statusspalte zeigt, ob nginx den Host tatsächlich ausliefert:
 
 Eine fehlerhafte benutzerdefinierte Location nimmt nicht mehr den ganzen Host offline: Nur diese Location wird deaktiviert, und der Editor zeigt den Grund. Jede Location kann außerdem einzeln ausgeschaltet werden.
 
-Die Felder für den Ziel-Host schlagen bereits verwendete Hosts und im Docker-Netzwerk gefundene Hosts vor. Um auch Docker-Container aufzulisten, `NPM_DOCKER_DISCOVERY=true` setzen und NPM Zugriff auf die Docker-API geben (empfohlen über einen Socket-Proxy, siehe Dokumentation).
+Die Felder für den Ziel-Host schlagen bereits verwendete Hosts und im Docker-Netzwerk gefundene Hosts vor. Um auch Docker-Container aufzulisten, `NPM_DOCKER_DISCOVERY=true` setzen und NPM Zugriff auf die Docker-API geben (empfohlen über einen Socket-Proxy, siehe Dokumentation). Wählst du einen Container mit `npm.*`-Labels, füllt das die freien Felder eines neuen Proxy-Hosts aus.
