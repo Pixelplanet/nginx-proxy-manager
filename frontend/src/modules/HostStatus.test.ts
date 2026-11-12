@@ -1,6 +1,6 @@
 import type { HostMeta, UpstreamHealthTarget, UpstreamHostHealth } from "src/api/backend";
 import { describe, expect, it } from "vitest";
-import { getHostStatus, getTestLocationIndex } from "./HostStatus";
+import { getHostStatus, getTestLocationIndex, isVariableHost, locationHostPart } from "./HostStatus";
 
 const target = (t: Partial<UpstreamHealthTarget>): UpstreamHealthTarget => ({
 	locationIndex: null,
@@ -79,5 +79,20 @@ describe("getTestLocationIndex", () => {
 			}),
 		).toBe(0);
 		expect(getTestLocationIndex({ ...result, nginxLocations: [] })).toBeNull();
+	});
+});
+
+describe("isVariableHost", () => {
+	it("finds forward hosts with nginx variables like the backend", () => {
+		for (const host of ["$backend", " $backend ", "app-$stage", "$svc.internal", "a$x$y"]) {
+			expect(isVariableHost(host)).toBe(true);
+		}
+		expect(isVariableHost(locationHostPart("app-$stage/api"))).toBe(true);
+	});
+
+	it("leaves out plain hosts and values that can't be written into nginx config", () => {
+		for (const host of ["app", "", null, undefined, "app-$x;", "$x y", "app-$" + "{stage}", "$backend/api"]) {
+			expect(isVariableHost(host)).toBe(false);
+		}
 	});
 });
