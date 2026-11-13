@@ -812,6 +812,9 @@
 	"nginx-error.hint.regex_uri_part": {
 		"defaultMessage": "Verwende eine Gruppe oder Variable im Weiterleitungspfad (/v1/$1), entferne den Weiterleitungspfad oder verwende eine Präfix-Location."
 	},
+	"nginx-error.hint.rejected_at_startup": {
+		"defaultMessage": "Speichere den Host erneut, um ihn wieder zu aktivieren, oder lass NPM_RECONCILE_ON_START eingeschaltet, damit das automatisch geschieht."
+	},
 	"nginx-error.hint.unexpected_close_brace": {
 		"defaultMessage": "Prüfe, ob zu jeder '{' eine passende '}' gehört."
 	},
@@ -842,11 +845,17 @@
 	"nginx-error.other-host": {
 		"defaultMessage": "Nginx hat die Konfiguration von {host} abgelehnt"
 	},
+	"nginx-error.previous-config-running": {
+		"defaultMessage": "Nginx führt die vorherige Konfiguration dieses Hosts weiter aus, bis ein Neuladen gelingt."
+	},
 	"nginx-error.redacted": {
 		"defaultMessage": "Nginx hat die Konfiguration eines anderen Hosts abgelehnt. Bitte einen Administrator, sie zu prüfen."
 	},
 	"nginx-error.regenerated-conflict": {
 		"defaultMessage": "Die neu erzeugte Konfiguration steht im Konflikt mit der Konfiguration eines anderen Hosts"
+	},
+	"nginx-error.rejected-at-startup": {
+		"defaultMessage": "Nginx hat die Konfiguration dieses Hosts beim Start des Containers abgelehnt"
 	},
 	"nginx-error.show-output": {
 		"defaultMessage": "Nginx-Ausgabe anzeigen"
@@ -1037,6 +1046,9 @@
 	"save-warning.offline": {
 		"defaultMessage": "Gespeichert, aber nginx konnte diesen Host nicht laden, daher ist er offline:"
 	},
+	"save-warning.previous-config-running": {
+		"defaultMessage": "Gespeichert, aber nginx hat die Änderung nicht übernommen und führt weiter die vorherige Konfiguration dieses Hosts aus:"
+	},
 	"save-warning.quarantined": {
 		"defaultMessage": "{count, plural, one {# benutzerdefinierte Location wurde deaktiviert, weil nginx sie abgelehnt hat.} other {# benutzerdefinierte Locations wurden deaktiviert, weil nginx sie abgelehnt hat.}}"
 	},
@@ -1081,6 +1093,12 @@
 	},
 	"settings.nginx.regenerate.audit": {
 		"defaultMessage": "{checked, plural, one {# Host} other {# Hosts}}, {offline} offline"
+	},
+	"settings.nginx.regenerate.audit-failed": {
+		"defaultMessage": "Fehlgeschlagen"
+	},
+	"settings.nginx.regenerate.audit-partial": {
+		"defaultMessage": "Fehlgeschlagen nach {checked, plural, =1 {# Host} other {# Hosts}}, {offline} offline"
 	},
 	"settings.nginx.regenerate.busy": {
 		"defaultMessage": "Alle Host-Konfigurationen werden bereits neu erzeugt, warte, bis das abgeschlossen ist."
@@ -1184,6 +1202,9 @@
 	"upstream.check.detail.invalid_host_empty": {
 		"defaultMessage": "Gib einen Hostnamen oder eine IP-Adresse ein."
 	},
+	"upstream.check.detail.no_resolver": {
+		"defaultMessage": "Der nginx-Resolver ist deaktiviert (DISABLE_RESOLVER), und nginx löst dieses Ziel bei jeder Anfrage auf: Anfragen schlagen fehl. Verwende eine IP-Adresse oder aktiviere den Resolver."
+	},
 	"upstream.check.detail.resolver_mismatch": {
 		"defaultMessage": "Nur /etc/hosts oder eine Suchdomäne aus resolv.conf findet „{host}“, nicht der DNS-Resolver von nginx. Das funktioniert nur mit einem statischen (beim Laden aufgelösten) Upstream."
 	},
@@ -1210,6 +1231,9 @@
 	},
 	"upstream.check.invalid_host": {
 		"defaultMessage": "Ungültiger Hostname"
+	},
+	"upstream.check.no_resolver": {
+		"defaultMessage": "Kein nginx-Resolver"
 	},
 	"upstream.check.ok": {
 		"defaultMessage": "Erreichbar"

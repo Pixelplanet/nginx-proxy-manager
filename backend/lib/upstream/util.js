@@ -1,10 +1,18 @@
 import fs from "node:fs";
 import net from "node:net";
 import { isVariableHost } from "../nginx-locations.js";
+import { scanNginxConfig } from "../nginx-tokenize.js";
 
 const RESOLVERS_CONF = "/etc/nginx/conf.d/include/resolvers.conf";
 const RESOLV_CONF = "/etc/resolv.conf";
 const DOCKER_EMBEDDED_DNS = "127.0.0.11";
+// The user's own http-level config, and the server-level one every proxy host includes: a `resolver` there stands
+// in for resolvers.conf (eg. with DISABLE_RESOLVER)
+const CUSTOM_RESOLVER_CONFS = [
+	"/data/nginx/custom/http_top.conf",
+	"/data/nginx/custom/http.conf",
+	"/data/nginx/custom/server_proxy.conf",
+];
 
 // Characters that would break out of the nginx config, plus anything that can never be part of a host
 // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are exactly what we reject
@@ -196,6 +204,39 @@ const readNginxResolvers = (file = RESOLVERS_CONF) => {
 };
 
 /**
+ * @param   {string} [text]  nginx config read at one level (http, server or location)
+ * @returns {boolean} true when it sets a `resolver` at that level (not in a nested block such as a location)
+ */
+const setsResolver = (text) =>
+	typeof text === "string" &&
+	text.includes("resolver") &&
+	scanNginxConfig(text).statements.some((s) => s.depth === 0 && s.tokens[0] === "resolver");
+
+/**
+ * @param   {string[]} [files]
+ * @returns {boolean} true when the user's http-level config or the server-level config of every proxy host sets
+ *          a `resolver` (nginx then resolves upstreams per request through it, also without resolvers.conf)
+ */
+const hasCustomResolver = (files = CUSTOM_RESOLVER_CONFS) =>
+	files.some((file) => {
+		try {
+			return setsResolver(fs.readFileSync(file, "utf8"));
+		} catch (_) {
+			return false;
+		}
+	});
+
+/**
+ * @param   {object} row              proxy host (advanced_config, locations)
+ * @param   {number|null} [locationIndex]  the custom location of the target, null for the main target
+ * @returns {boolean} true when the host's advanced configuration (server level) or, for a custom location, that
+ *          location's advanced configuration sets a `resolver` for the target's proxy_pass
+ */
+const hostSetsResolver = (row, locationIndex = null) =>
+	setsResolver(row?.advanced_config) ||
+	(Number.isInteger(locationIndex) && setsResolver(row?.locations?.[locationIndex]?.advanced_config));
+
+/**
  * @param   {string} content  /etc/resolv.conf contents
  * @returns {string[]}
  */
@@ -301,6 +342,8 @@ const withTimeout = (promise, ms, onTimeout) => {
 export {
 	createLimiter,
 	DOCKER_EMBEDDED_DNS,
+	hasCustomResolver,
+	hostSetsResolver,
 	intToIpv4,
 	ipv4ToInt,
 	isValidHost,

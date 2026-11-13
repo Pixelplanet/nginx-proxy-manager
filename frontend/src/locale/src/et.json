@@ -812,6 +812,9 @@
 	"nginx-error.hint.regex_uri_part": {
 		"defaultMessage": "Kasuta edastusteel püüdegruppi või muutujat (/v1/$1), eemalda edastustee või kasuta prefiksiga asukohta."
 	},
+	"nginx-error.hint.rejected_at_startup": {
+		"defaultMessage": "Salvesta host uuesti, et see tagasi tuua, või jäta NPM_RECONCILE_ON_START sisse, et see toimuks automaatselt."
+	},
 	"nginx-error.hint.unexpected_close_brace": {
 		"defaultMessage": "Kontrolli, et igal '{' on vastav '}'."
 	},
@@ -842,11 +845,17 @@
 	"nginx-error.other-host": {
 		"defaultMessage": "Nginx lükkas tagasi hosti {host} seadistuse"
 	},
+	"nginx-error.previous-config-running": {
+		"defaultMessage": "Nginx kasutab selle hosti eelmist seadistust edasi, kuni uuesti laadimine õnnestub."
+	},
 	"nginx-error.redacted": {
 		"defaultMessage": "Nginx lükkas tagasi teise hosti seadistuse. Palu administraatoril seda kontrollida."
 	},
 	"nginx-error.regenerated-conflict": {
 		"defaultMessage": "Uuesti loodud seadistus on vastuolus teise hosti seadistusega"
+	},
+	"nginx-error.rejected-at-startup": {
+		"defaultMessage": "Nginx lükkas selle hosti seadistuse konteineri käivitumisel tagasi"
 	},
 	"nginx-error.show-output": {
 		"defaultMessage": "Näita nginxi väljundit"
@@ -1037,6 +1046,9 @@
 	"save-warning.offline": {
 		"defaultMessage": "Salvestatud, kuid nginx ei suutnud seda hosti laadida, seega on see maas:"
 	},
+	"save-warning.previous-config-running": {
+		"defaultMessage": "Salvestatud, kuid nginx ei rakendanud muudatust ja kasutab selle hosti eelmist seadistust edasi:"
+	},
 	"save-warning.quarantined": {
 		"defaultMessage": "{count, plural, one {# kohandatud asukoht lülitati välja, sest nginx lükkas selle tagasi.} other {# kohandatud asukohta lülitati välja, sest nginx lükkas need tagasi.}}"
 	},
@@ -1081,6 +1093,12 @@
 	},
 	"settings.nginx.regenerate.audit": {
 		"defaultMessage": "{checked, plural, one {# host} other {# hosti}}, {offline} võrgust väljas"
+	},
+	"settings.nginx.regenerate.audit-failed": {
+		"defaultMessage": "Ebaõnnestus"
+	},
+	"settings.nginx.regenerate.audit-partial": {
+		"defaultMessage": "Ebaõnnestus pärast {checked, plural, =1 {# hosti} other {# hosti}}, {offline} võrgust väljas"
 	},
 	"settings.nginx.regenerate.busy": {
 		"defaultMessage": "Kõigi hostide seadistusi juba luuakse uuesti, oota, kuni see lõpeb."
@@ -1184,6 +1202,9 @@
 	"upstream.check.detail.invalid_host_empty": {
 		"defaultMessage": "Sisesta hostinimi või IP-aadress."
 	},
+	"upstream.check.detail.no_resolver": {
+		"defaultMessage": "Nginxi nimelahendaja on keelatud (DISABLE_RESOLVER) ja nginx lahendab selle upstreami iga päringu ajal: päringud ebaõnnestuvad. Kasuta IP-aadressi või luba nimelahendaja."
+	},
 	"upstream.check.detail.resolver_mismatch": {
 		"defaultMessage": "„{host}“ leitakse ainult /etc/hosts või resolv.conf otsingudomeeni kaudu, mitte nginxi DNS-lahendajaga. See töötab ainult staatilise (laadimisel lahendatava) upstreamiga."
 	},
@@ -1210,6 +1231,9 @@
 	},
 	"upstream.check.invalid_host": {
 		"defaultMessage": "Vigane hostinimi"
+	},
+	"upstream.check.no_resolver": {
+		"defaultMessage": "Nginxi nimelahendaja puudub"
 	},
 	"upstream.check.ok": {
 		"defaultMessage": "Kättesaadav"

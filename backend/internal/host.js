@@ -359,26 +359,65 @@ const internalHost = {
 	 * @param   {Function}  remove  async (): deletes (and revokes) the certificate
 	 * @returns {Promise<boolean>} true when the certificate was removed
 	 */
-	discardUnusedCertificate: async (certificateId, remove) => {
-		try {
-			for (const model of [proxyHostModel, redirectionHostModel, deadHostModel, streamModel]) {
-				const user = await model
-					.query()
-					.where("is_deleted", 0)
-					.andWhere("certificate_id", certificateId)
-					.first();
-				if (user) {
-					return false;
+	discardUnusedCertificate: (certificateId, remove) =>
+		// Under the nginx lock, like the updates that assign a certificate (see updateAndConfigure()): a host
+		// can't take the certificate up between the check and the removal
+		internalNginx
+			.withLock(async () => {
+				for (const model of [proxyHostModel, redirectionHostModel, deadHostModel, streamModel]) {
+					const user = await model
+						.query()
+						.where("is_deleted", 0)
+						.andWhere("certificate_id", certificateId)
+						.first();
+					if (user) {
+						return false;
+					}
 				}
+				await remove();
+				logger.warn(`Removed certificate #${certificateId}: the update it was requested for was rejected`);
+				return true;
+			})
+			.catch((err) => {
+				logger.warn(`Could not remove the unused certificate #${certificateId}: ${err.message}`);
+				return false;
+			}),
+
+	/**
+	 * Rolls back the create of a host that nginx rejected: marks the row deleted and, when a config file of it
+	 * is on disk, removes it and reloads nginx. A config can be there although the host was rejected: a new
+	 * certificate's request writes the configs of the hosts using its domains (the new host among them,
+	 * without the certificate) and nginx loads them, and the rejected configure() then puts that config back
+	 * as the host's previous one. Nothing removes the config of a deleted row later, so it would keep
+	 * answering for the host's domains. Never throws for the reload.
+	 *
+	 * @param   {Object}  model
+	 * @param   {String}  hostType  proxy_host, redirection_host, dead_host or stream
+	 * @param   {Number}  id
+	 * @returns {Promise}
+	 */
+	discardRejectedCreate: (model, hostType, id) =>
+		internalNginx.withLock(async () => {
+			await model.query().where("id", id).patch({ is_deleted: 1 });
+			const filename = internalNginx.getConfigName(hostType, id);
+			const served = internalNginx.readConfigFile(filename) !== null;
+			await internalNginx.deleteConfig(hostType, { id }, true);
+			if (!served) {
+				return;
 			}
-			await remove();
-			logger.warn(`Removed certificate #${certificateId}: the update it was requested for was rejected`);
-			return true;
-		} catch (err) {
-			logger.warn(`Could not remove the unused certificate #${certificateId}: ${err.message}`);
-			return false;
-		}
-	},
+			try {
+				const outcome = await internalNginx.reloadNginx();
+				if (outcome?.rejected) {
+					logger.warn(
+						`${hostType} #${id}: nginx did not apply the removal of the rejected new host's config`,
+					);
+				}
+			} catch (err) {
+				logger.warn(
+					`${hostType} #${id}: could not reload nginx to remove the rejected new host: ${err.message}`,
+				);
+			}
+		}),
 
 	/**
 	 * The state change of an enable or disable: re-reads the host, checks that the change is needed, patches
@@ -386,7 +425,10 @@ const internalHost = {
 	 * updateAndConfigure() holds, so a rejected update can't put back an `enabled` value that a concurrent
 	 * enable or disable has written in between, and an enable always configures the latest row.
 	 *
-	 * When nginx rejects an enabled host and keeps the previous config, the host stays disabled. Any other
+	 * When nginx rejects the reload that removes a disabled host's config (for another file), it still serves
+	 * the host: the config goes back and the host stays enabled. A host without a config (offline, only its
+	 * .err file) is disabled all the same. When nginx rejects an enabled host and keeps
+	 * the previous config, the host stays disabled. Any other
 	 * failure (eg. only the reload failed) leaves the new config file in place: then it stays enabled,
 	 * otherwise the next reload activates a host that the UI shows as disabled.
 	 *
@@ -408,7 +450,20 @@ const internalHost = {
 			await model.query().where("id", row.id).patch({ enabled: row.enabled });
 
 			if (!enable) {
-				await internalNginx.removeConfigAndReload(hostType, row);
+				const filename = internalNginx.getConfigName(hostType, row.id);
+				const previous = internalNginx.readConfigFile(filename);
+				const outcome = await internalNginx.removeConfigAndReload(hostType, row);
+				// An offline host (no config, only <id>.conf.err) isn't served: nothing to put back, the disable
+				// stands whatever another file does to the reload
+				if (outcome?.rejected && previous !== null) {
+					// Removing a config can't make nginx reject a reload: another file is the cause, and nginx still
+					// serves this host. Its config goes back and it stays enabled, as nginx runs it; the disable can
+					// be tried again.
+					internalNginx.restoreConfig(filename, previous);
+					row.enabled = 1;
+					await model.query().where("id", row.id).patch({ enabled: 1 });
+					throw internalNginx.rejectedReloadError(hostType, row, outcome);
+				}
 				return row;
 			}
 			try {

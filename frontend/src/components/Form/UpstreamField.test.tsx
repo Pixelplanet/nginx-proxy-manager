@@ -139,6 +139,48 @@ describe("UpstreamField helpers", () => {
 		expect(candidatePrefill(items[0])).toEqual({ port: 3000 });
 		expect(candidatePrefill(candidate({ ports: [80, 443] }))).toEqual({});
 	});
+
+	it("prefills http for a Docker container without a scheme hint, unless it is the current host", () => {
+		const web = candidate({ host: "web", source: "docker", ports: [8080] });
+		expect(candidatePrefill(web)).toEqual({ port: 8080, scheme: "http" });
+		expect(candidatePrefill(web, "secure-app")).toEqual({ port: 8080, scheme: "http" });
+		// picked again: it may serve TLS on 8080, the scheme stays as it is
+		expect(candidatePrefill(web, "web")).toEqual({ port: 8080 });
+		// DNS and history don't say, a hint wins
+		expect(candidatePrefill(candidate({ host: "web", source: "dns", ports: [8080] }))).toEqual({ port: 8080 });
+		expect(candidatePrefill(candidate({ host: "web", source: "history", ports: [8080] }))).toEqual({ port: 8080 });
+		expect(candidatePrefill({ ...web, hintScheme: "https" })).toEqual({ port: 8080, scheme: "https" });
+	});
+
+	it("doesn't change the scheme of a Docker container with several ports and no hint", () => {
+		const multi = candidate({ host: "web", source: "docker", ports: [80, 443] });
+		expect(candidatePrefill(multi, "old-tls")).toEqual({});
+		// editing a saved https:443 host: picking it leaves https and 443 as they are
+		const saved = { scheme: "https", port: 443 };
+		expect(allowedPrefill(candidatePrefill(multi, "old-tls"), saved, saved)).toEqual({});
+		// a single TLS port without a label is https
+		expect(candidatePrefill(candidate({ host: "web", source: "docker", ports: [443] }), "old")).toEqual({
+			port: 443,
+			scheme: "https",
+		});
+		expect(candidatePrefill(candidate({ host: "web", source: "docker", ports: [8443] }), "old")).toEqual({
+			port: 8443,
+			scheme: "https",
+		});
+	});
+
+	it("lets a Docker pick replace the saved https, but keeps a scheme the user set", () => {
+		const prefill = candidatePrefill(candidate({ host: "web", source: "docker", ports: [8080] }), "old-tls");
+		// the saved host used https and the field still has it
+		expect(allowedPrefill(prefill, { scheme: "https", port: 443 }, { scheme: "https", port: 443 })).toEqual({
+			port: 8080,
+			scheme: "http",
+		});
+		// the user switched to https themselves after loading http
+		expect(allowedPrefill(prefill, { scheme: "https", port: 443 }, { scheme: "http", port: 443 })).toEqual({
+			port: 8080,
+		});
+	});
 });
 
 describe("UpstreamField", () => {
@@ -359,7 +401,7 @@ describe("UpstreamField keyboard", () => {
 		expect(focusedOption()).toHaveTextContent("app-db");
 		fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
 		expect(screen.getByTestId("value")).toHaveTextContent(/^app-db$/);
-		expect(onSelect).toHaveBeenCalledWith({ port: 5432 }, expect.objectContaining({ host: "app-db" }));
+		expect(onSelect).toHaveBeenCalledWith({ port: 5432, scheme: "http" }, expect.objectContaining({ host: "app-db" }));
 	});
 
 	it("ArrowDown on a closed menu opens it with the first option highlighted", () => {

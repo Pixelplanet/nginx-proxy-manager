@@ -31,7 +31,7 @@ NPM picks the mode for each location every time it writes the host's config:
 | Name that doesn't resolve at all | dynamic, with status **unresolved** |
 | An nginx variable, for example `$backend` with `set $backend app;` in the advanced configuration, or `app-$stage` (only locations saved before v2.17, the API no longer accepts a `$` in a forward host) | static, written as it is: nginx already resolves it per request |
 | Location whose forward path contains an nginx variable, for example `/api/$arg_id` or `$request_uri` | static, written as it is: nginx already resolves it per request (a name that doesn't resolve still shows **unresolved**) |
-| Location with a forward path whose advanced configuration reads `$uri` or `$document_uri` | static while the name resolves, see below |
+| Location with a forward path whose advanced configuration (or a file it includes) reads `$uri` or `$document_uri` | static while the name resolves, see below |
 | Location whose advanced configuration includes a file NPM can't read (missing, no permission, not a regular file, larger than 4 MB) | static while the name resolves, see below |
 | `NPM_LOCATION_DYNAMIC_DNS=false`, or the resolver is disabled (`DISABLE_RESOLVER`) | static |
 
@@ -52,11 +52,18 @@ With a forward path, the dynamic mode replaces the location's path with the forw
 location `/u/` with forward path `/x/`) in everything that runs after it: `proxy_set_header`, `add_header`,
 `try_files`, `proxy_cache_key`, log formats, and so on. `$request_uri` is not affected.
 
-To keep the old value, a location whose advanced configuration reads `$uri` or `$document_uri` is rendered static
+To keep the old value, a location whose advanced configuration reads `$uri` or `$document_uri`, also in a file it
+includes, is rendered static
 as long as its upstream name resolves. When the name doesn't resolve, the location has to be dynamic (a literal
 unknown name makes nginx reject the whole configuration), and `$uri` then holds the rewritten path. Variables read
 outside the location's advanced configuration, for example in the host's advanced configuration or a custom log
 format, are not detected: use `$request_uri` there, or set `NPM_LOCATION_DYNAMIC_DNS=false`.
+
+With **Cache Assets**, the nested location for assets always runs that rewrite (in both modes: nginx doesn't allow
+a path in `proxy_pass` there). Its copy of the advanced configuration reads `$uri` and `$document_uri` from a
+variable set before the rewrite, so it sees the same path as the location. Two cases still see the forwarded path:
+a `proxy_set_header` (or other setting) inherited from a file included at the top level of the advanced
+configuration, and Lua code reading `ngx.var.uri`.
 :::
 
 A forward path with an nginx variable is written into the config exactly as before too
@@ -246,7 +253,7 @@ Save the affected host again once the cause is fixed.
 ### File directives in advanced configuration
 
 Advanced configuration is trusted nginx configuration. Whoever may edit a host's advanced configuration can do
-anything nginx and its modules can (Lua, `proxy_store`, a log path held in a variable, ...), so only give that
+anything nginx and its modules can (Lua, `proxy_store`, ...), so only give that
 permission to people you trust with the whole proxy. NPM checks a few file directives to catch accidental and
 obvious damage to other hosts. **This check is not a security boundary.**
 
@@ -265,10 +272,18 @@ These are rejected with `400` (a validation error naming the directive):
   nginx doesn't strip `/` or `..` from them, so any client could pick the file: a header such as
   `X: /../proxy_host/1.conf` would append log lines to another host's config. Give the path a fixed ending
   instead, for example `/data/logs/$host.log`.
+- `access_log` paths with a variable from the request (`$http_*`, `$arg_*`, `$cookie_*`, `$uri`, `$args`, regex
+  captures such as `$1`, ...: anything but `$host`, `$server_name`, `$server_port`, `$server_addr`, `$remote_addr`,
+  `$remote_port`, `$scheme`, `$status`, `$request_method`, `$msec`, `$pid` and `$connection`) that start with it
+  (`$http_x`, `$http_x.log`, `$host$http_x`), don't end with a fixed file name extension after it
+  (`/data/logs$http_x`, `/data/logs/$http_x.d/access`, `/data/logs/$http_x.conf`, `/data/logs/$http_x.npm-aside`), or have `..` after a
+  variable. A variable that is `set` in the same advanced configuration counts as each value it is set to
+  (`set $log /data/logs/$host.log; access_log $log;` is fine, `set $log $http_x; access_log $log;` is not); any
+  other variable counts as one the request fills in.
 
 Allowed are, for example: logs in `/data/logs/` or `/data/nginx/custom/*.log`, relative log paths such as
-`logs/custom.log` (nginx resolves them in `/etc/nginx/nginx/`), `off`, `stderr`, `syslog:`, `/dev/stdout`, a log
-path that starts with a variable, `root`, `alias` and `include` of your own snippets (`/data/nginx/custom/*.conf`,
+`logs/custom.log` (nginx resolves them in `/etc/nginx/nginx/`), `off`, `stderr`, `syslog:`, `/dev/stdout`,
+`/data/logs/$http_x.log`, `root`, `alias` and `include` of your own snippets (`/data/nginx/custom/*.conf`,
 `/snippets/*.conf`, `conf.d/include/*.conf`).
 
 The directives are read the way nginx reads them: a quote or `#` in the middle of a word (`a"b`, `/#/x`) does not
@@ -364,5 +379,5 @@ To skip the second step:
 | Variable | Default | Description |
 | --- | --- | --- |
 | `NPM_LOCATION_DYNAMIC_DNS` | `true` | Resolve custom location upstreams per request where possible. `false` renders every location with the literal host name. |
-| `NPM_RECONCILE_ON_START` | `true` | Regenerate missing, broken or outdated host configs after the backend starts. |
-| `DISABLE_RESOLVER` | unset | No nginx resolver is generated. Custom locations then always use the static form. |
+| `NPM_RECONCILE_ON_START` | `true` | Regenerate missing, broken or outdated host configs after the backend starts. When `false`, hosts whose config the startup check moved to `.err` are only shown as offline; save such a host again to bring it back. |
+| `DISABLE_RESOLVER` | unset | No nginx resolver is generated. Custom locations then always use the static form. A proxy host's main target is still resolved per request, so the upstream check and the health status report a host name there as **No nginx resolver** unless a `resolver` is set in `/data/nginx/custom/http_top.conf`, `http.conf` or `server_proxy.conf`, in the host's advanced configuration (server level, for every target of the host) or in a custom location's advanced configuration (for that location). |

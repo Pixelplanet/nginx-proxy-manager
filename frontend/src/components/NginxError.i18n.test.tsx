@@ -80,6 +80,58 @@ describe("nginx errors in the UI language", () => {
 		expect(error).not.toHaveTextContent(ENGLISH);
 	});
 
+	it("German: the save warning and the status popover of an offline host show the recovery hint", async () => {
+		changeLocale("de");
+		render(<SaveWarning meta={meta} onClose={() => {}} />);
+		expect(screen.getByTestId("save-warning")).toHaveTextContent("Prüfe die Schreibweise der Direktive.");
+		cleanup();
+		const popover = await openPopover(meta);
+		expect(popover).toHaveTextContent("Prüfe die Schreibweise der Direktive.");
+	});
+
+	it("English: the status popover shows the hint of a certificate that can't be loaded", async () => {
+		const popover = await openPopover({
+			nginxOnline: false,
+			nginxErr: "Cannot load certificate.",
+			nginxDetails: {
+				kind: "nginx_config",
+				scope: "host",
+				detail: "Cannot load certificate",
+				hintCode: "certificate_load",
+			},
+		});
+		expect(popover).toHaveTextContent(/Cannot load certificate/);
+		expect(popover).toHaveTextContent("Select another certificate or renew it.");
+	});
+
+	it("German: an offline host whose previous config nginx still runs says so", async () => {
+		changeLocale("de");
+		const running: HostMeta = {
+			nginxOnline: false,
+			nginxErr: "unsafe",
+			nginxDetails: { kind: "unsafe_value", scope: "host", detail: '"a b"', previousConfigRunning: true },
+		};
+		render(<SaveWarning meta={running} onClose={() => {}} />);
+		const warning = screen.getByTestId("save-warning");
+		expect(warning).toHaveTextContent(
+			"Gespeichert, aber nginx hat die Änderung nicht übernommen und führt weiter die vorherige Konfiguration dieses Hosts aus:",
+		);
+		expect(warning).not.toHaveTextContent("daher ist er offline");
+		cleanup();
+		const popover = await openPopover(running);
+		expect(popover).toHaveTextContent(
+			"Nginx führt die vorherige Konfiguration dieses Hosts weiter aus, bis ein Neuladen gelingt.",
+		);
+		cleanup();
+		const notRunning = {
+			...running,
+			nginxDetails: { ...running.nginxDetails, previousConfigRunning: false },
+		} as HostMeta;
+		render(<SaveWarning meta={notRunning} onClose={() => {}} />);
+		expect(screen.getByTestId("save-warning")).toHaveTextContent("daher ist er offline");
+		expect(screen.queryByTestId("host-previous-config")).toBeNull();
+	});
+
 	it("German: an error toast is one line, translated prefix then nginx's error", () => {
 		changeLocale("de");
 		const err = new ApiError(ENGLISH, { status: 400, details: advanced });
@@ -118,6 +170,23 @@ describe("nginx errors in the UI language", () => {
 		expect(
 			describeNginxError({ kind: "unsafe_value", scope: "host", detail: 'proxy host #1: forward host "a b"' }),
 		).toEqual({ text: unsafe, detail: 'proxy host #1: forward host "a b"', hint: null });
+	});
+
+	it("German: a host whose config nginx rejected at startup, with the hint how to bring it back", () => {
+		changeLocale("de");
+		expect(
+			describeNginxError({
+				kind: "nginx_config",
+				scope: "host",
+				reason: "rejected_at_startup",
+				hintCode: "rejected_at_startup",
+				detail: null,
+			}),
+		).toEqual({
+			text: "Nginx hat die Konfiguration dieses Hosts beim Start des Containers abgelehnt",
+			detail: null,
+			hint: "Speichere den Host erneut, um ihn wieder zu aktivieren, oder lass NPM_RECONCILE_ON_START eingeschaltet, damit das automatisch geschieht.",
+		});
 	});
 
 	it("a disabled host's badge uses the existing, translated 'disabled' text", () => {

@@ -121,6 +121,9 @@ export const describeNginxError = (details?: NginxConfigErrorDetails | null): Ng
 			case "regenerated_conflict":
 				text = fmt("nginx-error.regenerated-conflict");
 				break;
+			case "rejected_at_startup":
+				text = fmt("nginx-error.rejected-at-startup");
+				break;
 			default:
 				text = nginxErrorWhere(d);
 		}
@@ -278,6 +281,28 @@ export const getHostStatus = (
 		unhealthyTargets,
 	};
 };
+
+// The order of the status column, ascending: the hosts that need attention first
+const HOST_STATE_RANK: Record<HostState, number> = { error: 0, warning: 1, disabled: 2, online: 3 };
+
+export const hostStatusRank = (enabled: boolean, meta?: HostMeta | null, health?: UpstreamHostHealth | null): number =>
+	HOST_STATE_RANK[getHostStatus(enabled, meta, health).state];
+
+interface HostRow {
+	original: { id?: number; enabled: boolean; meta?: HostMeta | null };
+}
+/** sortFn of a table's status column: sorts by the status it shows, not only enabled / disabled */
+export const sortByHostStatus = (a: HostRow, b: HostRow): number =>
+	hostStatusRank(a.original.enabled, a.original.meta) - hostStatusRank(b.original.enabled, b.original.meta);
+
+/** sortByHostStatus() with the upstream health of each host (by id), which the proxy hosts' status shows too */
+export const sortByHostStatusWithHealth =
+	(health?: Record<string, UpstreamHostHealth> | null) =>
+	(a: HostRow, b: HostRow): number => {
+		const rank = (row: HostRow) =>
+			hostStatusRank(row.original.enabled, row.original.meta, health?.[`${row.original.id}`]);
+		return rank(a) - rank(b);
+	};
 
 /** Whether a successful save still needs the user's attention */
 export const hasSaveWarnings = (meta?: HostMeta | null) =>

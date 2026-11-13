@@ -164,7 +164,7 @@ export interface NginxConfigErrorDetails {
 	// within it
 	area?: string | null;
 	relativeLine?: number | null;
-	// special cases: conflict, regenerated_conflict, too_many_broken_hosts, redacted
+	// special cases: conflict, regenerated_conflict, too_many_broken_hosts, redacted, rejected_at_startup
 	reason?: string;
 	// too_many_broken_hosts: how many hosts one operation repairs at most
 	max?: number;
@@ -178,6 +178,8 @@ export interface NginxConfigErrorDetails {
 	autoDisabled?: boolean;
 	// default_site: the error came from saving the default site
 	context?: string;
+	// host meta: nginx did not apply the removal of the host's config and still runs its previous config
+	previousConfigRunning?: boolean;
 }
 
 export type LocationStatusValue = "ok" | "disabled" | "quarantined" | "unresolved";
@@ -380,6 +382,8 @@ export type UpstreamCheckCode =
 	| "dns_not_found"
 	| "dns_timeout"
 	| "resolver_mismatch"
+	// nginx resolves the target per request but has no resolver at all (DISABLE_RESOLVER)
+	| "no_resolver"
 	| "tcp_refused"
 	| "tcp_timeout"
 	| "tcp_unreachable"
