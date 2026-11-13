@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -12,6 +13,7 @@ import {
 	formatMs,
 	MESSAGES,
 	resolverLookup,
+	systemLookup,
 	targetKey,
 	tcpConnect,
 } from "../lib/upstream/check.js";
@@ -375,11 +377,52 @@ describe("upstream check: batching", () => {
 });
 
 describe("upstream check: primitives", () => {
-	it("tcpConnect times out against a non-routable address", async () => {
-		// 10.255.255.1 is normally dropped; if the sandbox has no route we get unreachable instead
-		const result = await tcpConnect("10.255.255.1", 9, 300);
-		assert.equal(result.ok, false);
-		assert.ok(["tcp_timeout", "tcp_unreachable"].includes(result.code));
+	it("tcpConnect times out when the connection neither opens nor fails", async () => {
+		// a socket that never answers, independent of the host's network
+		let destroyed = false;
+		const silent = () =>
+			Object.assign(new EventEmitter(), {
+				connect: () => {},
+				destroy: () => {
+					destroyed = true;
+				},
+			});
+		const result = await tcpConnect("192.0.2.1", 9, 50, silent);
+		assert.deepEqual(result, { ok: false, code: "tcp_timeout", ms: null, error: "ETIMEDOUT" });
+		assert.equal(destroyed, true);
+	});
+
+	it("systemLookup keeps its DNS slot until a timed-out lookup settles", async () => {
+		// the cap is 16: lookups that time out for the caller still run (getaddrinfo can't be cancelled)
+		let running = 0;
+		let most = 0;
+		const pending = [];
+		const lookup = () =>
+			new Promise((resolve) => {
+				running++;
+				most = Math.max(most, running);
+				pending.push(() => {
+					running--;
+					resolve([{ address: "10.0.0.1" }]);
+				});
+			});
+		const first = await Promise.all(
+			Array.from({ length: 16 }, () => systemLookup("slow", { lookup, timeoutMs: 20 })),
+		);
+		assert.ok(first.every((r) => r.timeout && r.error === "ETIMEOUT"));
+		// more lookups wait for a free slot instead of starting while those still run (another test may hold a
+		// slot with a lookup that never settles, so not all 16 need to have started)
+		const started = running;
+		assert.ok(started > 0 && started <= 16);
+		const more = Promise.all(Array.from({ length: 4 }, () => systemLookup("slow", { lookup, timeoutMs: 20 })));
+		await new Promise((resolve) => setTimeout(resolve, 40));
+		assert.equal(running, started);
+		while (pending.length) {
+			pending.shift()();
+			await new Promise((resolve) => setImmediate(resolve));
+		}
+		await more;
+		assert.ok(most <= 16);
 	});
 
 	it("resolverLookup returns null without resolvers", async () => {

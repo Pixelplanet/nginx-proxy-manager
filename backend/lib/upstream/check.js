@@ -46,29 +46,27 @@ const dnsLimit = createLimiter(16);
 const systemLookup = (host, opts = {}) => {
 	const lookup = opts.lookup || dns.promises.lookup;
 	const timeoutMs = opts.timeoutMs || SYSTEM_LOOKUP_TIMEOUT_MS;
-	return dnsLimit(() => {
+	// getaddrinfo runs on libuv's threadpool and can't be cancelled: the lookup keeps its limiter slot until it
+	// settles, so slow lookups can't pile up beyond the cap. Only the caller stops waiting at the timeout.
+	const settled = dnsLimit(() => {
 		const started = Date.now();
-		return withTimeout(
-			Promise.resolve()
-				.then(() => lookup(host, { all: true, verbatim: false }))
-				.then(
-					(list) => {
-						const addresses = [...new Set((list || []).map((entry) => entry.address))];
-						return { ok: addresses.length > 0, addresses, timeout: false, error: null };
-					},
-					(err) => ({
-						ok: false,
-						addresses: [],
-						timeout:
-							DNS_TIMEOUT.has(err?.code) ||
-							(err?.code === "EAI_AGAIN" && Date.now() - started >= SLOW_EAI_AGAIN_MS),
-						error: err?.code || "ERROR",
-					}),
-				),
-			timeoutMs,
-			() => ({ ok: false, addresses: [], timeout: true, error: "ETIMEOUT" }),
-		);
+		return Promise.resolve()
+			.then(() => lookup(host, { all: true, verbatim: false }))
+			.then(
+				(list) => {
+					const addresses = [...new Set((list || []).map((entry) => entry.address))];
+					return { ok: addresses.length > 0, addresses, timeout: false, error: null };
+				},
+				(err) => ({
+					ok: false,
+					addresses: [],
+					timeout:
+						DNS_TIMEOUT.has(err?.code) || (err?.code === "EAI_AGAIN" && Date.now() - started >= SLOW_EAI_AGAIN_MS),
+					error: err?.code || "ERROR",
+				}),
+			);
 	});
+	return withTimeout(settled, timeoutMs, () => ({ ok: false, addresses: [], timeout: true, error: "ETIMEOUT" }));
 };
 
 /**
@@ -129,13 +127,19 @@ const resolverLookup = async (host, resolvers, opts = {}) => {
  * @param   {number} [timeoutMs]
  * @returns {Promise<{ok: boolean, code: string, ms: number|null, error: string|null}>}
  */
-const tcpConnect = (address, port, timeoutMs = TCP_TIMEOUT_MS) =>
+/**
+ * @param   {string}   address
+ * @param   {number}   port
+ * @param   {number}   [timeoutMs]
+ * @param   {Function} [createSocket]  () => net.Socket-like, injectable for the tests
+ */
+const tcpConnect = (address, port, timeoutMs = TCP_TIMEOUT_MS, createSocket = () => new net.Socket()) =>
 	tcpLimit(
 		() =>
 			new Promise((resolve) => {
 				const started = process.hrtime.bigint();
 				let settled = false;
-				const socket = new net.Socket();
+				const socket = createSocket();
 
 				const finish = (result) => {
 					if (settled) {

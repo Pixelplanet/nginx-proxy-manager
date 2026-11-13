@@ -155,6 +155,12 @@
 /crw/old/page|||"url":"/crw/new/page"
 /crw/app.css|||"url":"/k/app.css"
 /crw/page?x=1|||"url":"/k/page?x=1"
+/crwg/alias/secret.css|||403
+/crwg/alias/page|||403
+/crwg/private/x.css|||403
+/crwg/pub/app.css|||"url":"/v1/pub/app.css"
+/crwg/pub/app.css|||"in":"/crwg/pub/app.css"
+/crwg/pub/page|||"in":"/crwg/pub/page"
 /cif/app.css|||"url":"/v1/a"
 /cif/app.css?b=1|||"url":"/v1/b"
 /cif/page?b=1|||"url":"/v1/b"
@@ -184,7 +190,8 @@
 /cinc/inner/x.css|||"url":"/i/inner/x.css"|X-Ok: 1
 /cincg/page|||403
 /cincg/page|||"url":"/cincg/page"|X-Token: secret
-/cincg/app.css|||"url":"/cincg/app.css"
+/cincg/app.css|||403
+/cincg/app.css|||"url":"/cincg/app.css"|X-Token: secret
 /clua/app.css|||403
 /clua/app.css|||"in":"inc"|X-Token: secret
 /clua/page|||403

@@ -217,22 +217,23 @@ const internalProxyHost = {
 				return row;
 			})
 			.then((row) => {
+				const requested = data;
 				// Add domain_names to the data in case it isn't there, so that the audit log renders correctly. The order is important here.
-				thisData = _.assign(
-					{},
-					{
-						domain_names: row.domain_names,
-					},
-					data,
-				);
-
-				thisData = internalHost.cleanSslHstsData(thisData, row);
+				thisData = internalHost.cleanSslHstsData(_.assign({}, { domain_names: row.domain_names }, requested), row);
 
 				return internalHost.updateAndConfigure({
 					model: proxyHostModel,
 					hostType: "proxy_host",
 					id: thisData.id,
-					patch: thisData,
+					// merged with the row as it is under the lock, not the one read above (before the certificate
+					// request): a disable or another change in between must not be undone
+					patch: (current) => {
+						thisData = internalHost.cleanSslHstsData(
+							_.assign({}, { domain_names: current.domain_names }, requested),
+							current,
+						);
+						return thisData;
+					},
 					// there's no need to add nginx config if host is disabled
 					skipDisabled: true,
 					fetch: () =>
@@ -329,10 +330,14 @@ const internalProxyHost = {
 					.patch({
 						is_deleted: 1,
 					})
-					.then(() => {
-						// Delete Nginx Config
-						return internalNginx.removeConfigAndReload("proxy_host", row);
-					})
+					.then(() =>
+						// Delete Nginx Config. When nginx can't apply the removal it still serves the host
+						// (removeConfigAndReload() put its config back): the delete is undone
+						internalNginx.removeConfigAndReload("proxy_host", row).catch(async (err) => {
+							await proxyHostModel.query().where("id", row.id).patch({ is_deleted: 0 });
+							throw err;
+						}),
+					)
 					.then(() => {
 						// Add to audit log
 						return internalAuditLog.add(access, {

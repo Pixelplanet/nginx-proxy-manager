@@ -47,18 +47,59 @@ for NGINX_VALIDATE_ASIDE in /data/nginx/proxy_host/*.conf.npm-aside /data/nginx/
 	fi
 done
 
-NGINX_VALIDATE_MAX=100
+# Every round moves at least one host config aside (or stops), so there can't be more rounds than
+# host configs; one more for the final test
+NGINX_VALIDATE_MAX="$(find /data/nginx/proxy_host /data/nginx/redirection_host /data/nginx/dead_host /data/nginx/stream -maxdepth 1 -name '*.conf' 2>/dev/null | wc -l)"
+NGINX_VALIDATE_MAX=$((NGINX_VALIDATE_MAX + 1))
 NGINX_VALIDATE_COUNT=0
 NGINX_VALIDATE_HOSTS='/data/nginx/(proxy_host|redirection_host|dead_host|stream)/[0-9]+\.conf'
+
+# awk program: succeeds when the file mentions the path in ENVIRON["NGINX_VALIDATE_P"] outside
+# of comments. Read like nginx does (see lib/nginx-tokenize.js in the backend): `#` starts a
+# comment only at the start of a token, so it is part of `/data/certs/#old.pem` and of a quoted
+# path like "/data/logs/#x/access.log".
+NGINX_VALIDATE_MENTIONS='
+BEGIN { p = ENVIRON["NGINX_VALIDATE_P"] }
+{
+	out = ""; q = ""; start = 1
+	for (i = 1; i <= length($0); i++) {
+		c = substr($0, i, 1)
+		if (q != "") {
+			out = out c
+			if (c == "\\") { i++; out = out substr($0, i, 1) } else if (c == q) { q = "" }
+			start = 0
+			continue
+		}
+		if (c == "#" && start) break
+		if ((c == "\"" || c == "\047") && start) q = c
+		out = out c
+		start = (c == " " || c == "\t" || c == ";" || c == "{" || c == "}")
+	}
+	if (index(out, p)) found = 1
+}
+END { exit !found }'
 
 # Runs nginx -t as PUID:PGID, prints the output
 nginx_validate_test() {
 	s6-setuidgid "$PUID:$PGID" nginx -t -g 'error_log /dev/null;' 2>&1 || true
 }
 
+# Drops the docker startup alert about /var/log/nginx/error.log (always a false positive). Real
+# errors that mention that path (a host's own error_log) are kept, they name the broken host.
+nginx_validate_clean() {
+	grep -vE '\[alert\].*could not open error log file: open\(\) "/var/log/nginx/error\.log"' || true
+}
+
 # Prints the first error line (emerg/alert/crit) of nginx -t output given as $1
 nginx_validate_error() {
-	echo "$1" | grep -v '/var/log/nginx/error.log' | grep -E '\[(emerg|alert|crit)\]' | head -n 1 || true
+	echo "$1" | nginx_validate_clean | grep -E '\[(emerg|alert|crit)\]' | head -n 1 || true
+}
+
+# Succeeds when the nginx -t output given as $1 no longer fails because of the path $2:
+# the test passes, or the remaining error doesn't name the path
+nginx_validate_fixes() {
+	echo "$1" | grep -q 'test is successful' \
+		|| ! nginx_validate_error "$1" | grep -qF -- "$2"
 }
 
 # Moves the files given as arguments aside, runs nginx -t, puts them back and prints the
@@ -97,22 +138,22 @@ while [ "$NGINX_VALIDATE_COUNT" -lt "$NGINX_VALIDATE_MAX" ]; do
 	# candidate is moved aside in turn and only the one whose removal makes the error go away
 	# (the test passes, or the remaining error no longer names the path) is blamed. The others
 	# are put back. When no single candidate helps (eg. a certificate several hosts share),
-	# all of them are moved aside together, and if that helps, all of them are blamed.
+	# all of them are moved aside together, and if that helps, the group is reduced to the
+	# members whose removal is needed and those are blamed.
 	if [ -z "$NGINX_VALIDATE_FILES" ] && ! echo "$NGINX_VALIDATE_ERROR" | grep -qE ' in /[^ ]+:[0-9]+$'; then
 		while IFS= read -r NGINX_VALIDATE_PATH; do
 			[ -n "$NGINX_VALIDATE_PATH" ] || continue
 			NGINX_VALIDATE_CANDIDATES=()
 			while IFS= read -r NGINX_VALIDATE_CANDIDATE; do
 				[ -n "$NGINX_VALIDATE_CANDIDATE" ] || continue
-				if awk -v p="$NGINX_VALIDATE_PATH" '{ sub(/#.*/, "") } index($0, p) { found = 1 } END { exit !found }' "$NGINX_VALIDATE_CANDIDATE"; then
+				if NGINX_VALIDATE_P="$NGINX_VALIDATE_PATH" awk "$NGINX_VALIDATE_MENTIONS" "$NGINX_VALIDATE_CANDIDATE"; then
 					NGINX_VALIDATE_CANDIDATES+=("$NGINX_VALIDATE_CANDIDATE")
 				fi
 			done <<<"$(grep -lF -- "$NGINX_VALIDATE_PATH" /data/nginx/proxy_host/*.conf /data/nginx/redirection_host/*.conf /data/nginx/dead_host/*.conf /data/nginx/stream/*.conf 2>/dev/null || true)"
 
 			for NGINX_VALIDATE_CANDIDATE in "${NGINX_VALIDATE_CANDIDATES[@]}"; do
 				NGINX_VALIDATE_RETRY="$(nginx_validate_test_aside "$NGINX_VALIDATE_CANDIDATE")"
-				if echo "$NGINX_VALIDATE_RETRY" | grep -q 'test is successful' \
-					|| ! nginx_validate_error "$NGINX_VALIDATE_RETRY" | grep -qF -- "$NGINX_VALIDATE_PATH"; then
+				if nginx_validate_fixes "$NGINX_VALIDATE_RETRY" "$NGINX_VALIDATE_PATH"; then
 					NGINX_VALIDATE_FILES="$NGINX_VALIDATE_CANDIDATE"
 					break 2
 				fi
@@ -120,18 +161,34 @@ while [ "$NGINX_VALIDATE_COUNT" -lt "$NGINX_VALIDATE_MAX" ]; do
 
 			if [ "${#NGINX_VALIDATE_CANDIDATES[@]}" -gt 1 ]; then
 				NGINX_VALIDATE_RETRY="$(nginx_validate_test_aside "${NGINX_VALIDATE_CANDIDATES[@]}")"
-				if echo "$NGINX_VALIDATE_RETRY" | grep -q 'test is successful' \
-					|| ! nginx_validate_error "$NGINX_VALIDATE_RETRY" | grep -qF -- "$NGINX_VALIDATE_PATH"; then
-					NGINX_VALIDATE_FILES="$(printf '%s\n' "${NGINX_VALIDATE_CANDIDATES[@]}")"
+				if nginx_validate_fixes "$NGINX_VALIDATE_RETRY" "$NGINX_VALIDATE_PATH"; then
+					# A mention alone doesn't make a host part of the cause (eg. a healthy host that only
+					# names the certificate path in an add_header): put each member back in turn and keep
+					# it out of the group when the error stays away without it. Groups of two can't
+					# shrink, every single candidate failed above.
+					NGINX_VALIDATE_GROUP=("${NGINX_VALIDATE_CANDIDATES[@]}")
+					for NGINX_VALIDATE_CANDIDATE in "${NGINX_VALIDATE_CANDIDATES[@]}"; do
+						[ "${#NGINX_VALIDATE_GROUP[@]}" -ge 3 ] || break
+						NGINX_VALIDATE_REST=()
+						for NGINX_VALIDATE_FILE in "${NGINX_VALIDATE_GROUP[@]}"; do
+							[ "$NGINX_VALIDATE_FILE" = "$NGINX_VALIDATE_CANDIDATE" ] || NGINX_VALIDATE_REST+=("$NGINX_VALIDATE_FILE")
+						done
+						NGINX_VALIDATE_RETRY="$(nginx_validate_test_aside "${NGINX_VALIDATE_REST[@]}")"
+						if nginx_validate_fixes "$NGINX_VALIDATE_RETRY" "$NGINX_VALIDATE_PATH"; then
+							NGINX_VALIDATE_GROUP=("${NGINX_VALIDATE_REST[@]}")
+						fi
+					done
+					NGINX_VALIDATE_FILES="$(printf '%s\n' "${NGINX_VALIDATE_GROUP[@]}")"
 					break
 				fi
 			fi
-		done <<<"$(echo "$NGINX_VALIDATE_ERROR" | grep -oE '"/[^" ]+"' | tr -d '"' || true)"
+		# nginx quotes the path as it is, spaces included (a path written quoted in the config can have them)
+		done <<<"$(echo "$NGINX_VALIDATE_ERROR" | grep -oE '"/[^"]+"' | sed -E 's/^"//; s/"$//' || true)"
 	fi
 
 	if [ -z "$NGINX_VALIDATE_FILES" ]; then
 		log_error 'nginx config test failed and no host config could be blamed:'
-		echo "$NGINX_VALIDATE_OUTPUT" | grep -v '/var/log/nginx/error.log' >&2 || true
+		echo "$NGINX_VALIDATE_OUTPUT" | nginx_validate_clean >&2
 		break
 	fi
 
@@ -151,12 +208,12 @@ while [ "$NGINX_VALIDATE_COUNT" -lt "$NGINX_VALIDATE_MAX" ]; do
 
 	if [ "$NGINX_VALIDATE_MOVED" -eq 0 ]; then
 		log_error 'nginx config test failed and the blamed host config could not be moved:'
-		echo "$NGINX_VALIDATE_OUTPUT" | grep -v '/var/log/nginx/error.log' >&2 || true
+		echo "$NGINX_VALIDATE_OUTPUT" | nginx_validate_clean >&2
 		break
 	fi
 
 	NGINX_VALIDATE_COUNT=$((NGINX_VALIDATE_COUNT + 1))
 done
 
-unset -f nginx_validate_test nginx_validate_error nginx_validate_test_aside
-unset NGINX_VALIDATE_MAX NGINX_VALIDATE_COUNT NGINX_VALIDATE_HOSTS NGINX_VALIDATE_OUTPUT NGINX_VALIDATE_ERROR NGINX_VALIDATE_FILES NGINX_VALIDATE_FILE NGINX_VALIDATE_PATH NGINX_VALIDATE_CANDIDATE NGINX_VALIDATE_CANDIDATES NGINX_VALIDATE_RETRY NGINX_VALIDATE_ASIDE NGINX_VALIDATE_CONF NGINX_VALIDATE_MOVED
+unset -f nginx_validate_test nginx_validate_clean nginx_validate_error nginx_validate_fixes nginx_validate_test_aside
+unset NGINX_VALIDATE_MENTIONS NGINX_VALIDATE_P NGINX_VALIDATE_MAX NGINX_VALIDATE_COUNT NGINX_VALIDATE_HOSTS NGINX_VALIDATE_OUTPUT NGINX_VALIDATE_ERROR NGINX_VALIDATE_FILES NGINX_VALIDATE_FILE NGINX_VALIDATE_PATH NGINX_VALIDATE_CANDIDATE NGINX_VALIDATE_CANDIDATES NGINX_VALIDATE_GROUP NGINX_VALIDATE_REST NGINX_VALIDATE_RETRY NGINX_VALIDATE_ASIDE NGINX_VALIDATE_CONF NGINX_VALIDATE_MOVED

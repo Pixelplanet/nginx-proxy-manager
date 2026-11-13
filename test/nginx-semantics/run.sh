@@ -17,7 +17,7 @@ test -f /tmp/nginx-sem/conf.d/include/assets.conf
 
 # snippets included by the advanced config of /cinc/ and /cincg/ (cases.json): what the backend can't see. proxy.conf
 # sets directives of the asset cache block as Authelia's proxy.conf does, auth.conf brings an auth_request and
-# nested locations as Authelia / authentik snippets do, guard.conf a rewrite-phase guard, redir.conf a
+# nested locations as Authelia / authentik snippets do, guard.conf a rewrite-phase guard (copied into the asset location), redir.conf a
 # proxy_redirect (as Authelia's proxy.conf has one), ref.conf valid_referers, rdoff.conf / rdnest.conf (included
 # through a glob) / rdother.conf a proxy_redirect the backend reads from the file (no redirect line of its own)
 mkdir -p /tmp/nginx-sem/snip
@@ -100,8 +100,8 @@ fetch () {
 
 # Cases with "Cache Assets" are served by the full host template (gen.mjs, :8012 static / :8013 dynamic), the others
 # by :8002 / :8003. Neither is compared with the legacy rendering, nor is the access list case.
-CACHED='^/(cache|cacheroot|qc%20p|avc|cachere|cro|cvt|api|cvar|cvarfp|nolocation|private|crw|cif|cnest|cacl|cinc|cincg|clua|csm|cstore|cstorei|cluab|cluabi|credi|cref|crdoi|curi)/'
-NOT_LEGACY='^/(cache|cacheroot|acl|qc%20p|avc|cachere|cro|cvt|api|cvar|cvarfp|nolocation|private|crw|cif|cnest|cacl|cinc|cincg|clua|csm|cstore|cstorei|cluab|cluabi|credi|cref|crdoi|curi)/'
+CACHED='^/(cache|cacheroot|qc%20p|avc|cachere|cro|cvt|api|cvar|cvarfp|nolocation|private|crw|crwg|cif|cnest|cacl|cinc|cincg|clua|csm|cstore|cstorei|cluab|cluabi|credi|cref|crdoi|curi)/'
+NOT_LEGACY='^/(cache|cacheroot|acl|qc%20p|avc|cachere|cro|cvt|api|cvar|cvarfp|nolocation|private|crw|crwg|cif|cnest|cacl|cinc|cincg|clua|csm|cstore|cstorei|cluab|cluabi|credi|cref|crdoi|curi)/'
 
 diffs=0
 total=0

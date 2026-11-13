@@ -897,6 +897,10 @@ const internalNginx = {
 					}
 				} catch (err) {
 					if (!err.protectedConflict) {
+						// Unexpected (eg. the other host's offline status could not be written): this host's candidate
+						// config is on disk, also in a dry run. Put its previous files back first, so a later reload
+						// can't apply a candidate whose configure failed.
+						await internalNginx.restoreHost(model, host, filename, previous, previousErr, heals > 0);
 						throw err;
 					}
 					if (filename !== repair.saved) {
@@ -1930,7 +1934,9 @@ const internalNginx = {
 			},
 		});
 		if (healRecorder && row) {
-			healRecorder.push({ host_type: other.host_type, id: row.id });
+			// file and its text before the repair: regenerateAll() hands a regenerated file to the isolation of a
+			// rejected reload, also when its host type wasn't selected
+			healRecorder.push({ host_type: other.host_type, id: row.id, file: filename, previous: fileText });
 		}
 		return true;
 	},
@@ -2275,16 +2281,39 @@ const internalNginx = {
 	reload: () => withLock(() => internalNginx.reloadNginx()),
 
 	/**
-	 * Removes the config of a host and reloads nginx
+	 * Removes the config of a host and reloads nginx.
+	 *
+	 * Removing a config can't make nginx reject a reload, but another file can (or the test fails and can't be
+	 * healed): then nginx still serves the host. Its config goes back and the error is thrown (a rejected reload
+	 * as rejectedReloadError()), so the caller can undo its delete or disable instead of reporting a removal
+	 * nginx didn't apply. A host without a config (offline, only its .err file) isn't served: its removal stands
+	 * whatever the reload does.
 	 *
 	 * @param   {String}  host_type
 	 * @param   {Object}  host
-	 * @returns {Promise}
+	 * @returns {Promise} the reload outcome
 	 */
 	removeConfigAndReload: (host_type, host) =>
 		withLock(async () => {
+			const filename = internalNginx.getConfigName(internalNginx.getFileFriendlyHostType(host_type), host.id);
+			const previous = internalNginx.readConfigFile(filename);
 			await internalNginx.deleteConfig(host_type, host);
-			return internalNginx.reloadNginx();
+			let outcome;
+			try {
+				outcome = await internalNginx.reloadNginx();
+			} catch (err) {
+				if (previous === null) {
+					logger.warn(`Removed ${hostLabel(host_type, host)}, but nginx could not reload: ${err.message}`);
+					return { failed: true };
+				}
+				internalNginx.restoreConfig(filename, previous);
+				throw err;
+			}
+			if (outcome?.rejected && previous !== null) {
+				internalNginx.restoreConfig(filename, previous);
+				throw internalNginx.rejectedReloadError(host_type, host, outcome);
+			}
+			return outcome;
 		}),
 
 	/**
@@ -2955,6 +2984,18 @@ const internalNginx = {
 					const written = results
 						.filter((r) => !r.error && !r.skipped && !r.suspended && r.meta?.nginx_online !== false)
 						.map((r) => internalNginx.getConfigName(r.hostType, r.row.id));
+					// Hosts that configuring or the final test regenerated on the way (healOtherHost()), eg. a broken
+					// stream during a proxy_host-only run: nginx may reject their new config too, so they are part of
+					// the isolation, with the text they had before (a file moved to .err is not)
+					for (const entry of healed) {
+						if (!entry.file || written.includes(entry.file) || !fs.existsSync(entry.file)) {
+							continue;
+						}
+						written.push(entry.file);
+						if (!previous.has(entry.file) && !absent.has(entry.file)) {
+							previous.set(entry.file, entry.previous);
+						}
+					}
 					const isolated = reloaded?.rejected
 						? await internalNginx.isolateRejectedReload(written, {
 								outcome: reloaded,
@@ -3159,6 +3200,9 @@ const internalNginx = {
 					}
 				} catch (err) {
 					logger.error(`Startup reconcile: nginx reload failed: ${err.message}`);
+					// nginx may still run its previous config without the regenerated hosts: try them again later,
+					// that reloads again
+					retryList(written.map(parseManagedFile).filter(Boolean), summary.retry);
 				}
 			}
 			const retries = Object.values(summary.retry).reduce((sum, ids) => sum + ids.length, 0);
