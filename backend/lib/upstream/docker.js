@@ -40,7 +40,39 @@ class DockerApiError extends Error {
 }
 
 /**
- * Parses DOCKER_HOST into node:http request options
+ * DOCKER_HOST (or a socket path from it) as it may be shown or logged: without user info (`tcp://user:pass@host`
+ * and `user:pass@host` give `tcp://***@host` and `***@host`), its query and fragment, which can hold credentials.
+ * Everything up to the last `@` counts as user info, so a password with `/`, `?`, `#` or `@` in it is cut as
+ * well; the query and fragment are cut after that. Discovery users who aren't admins see the errors that name it.
+ *
+ * @param   {string} value
+ * @returns {string}
+ */
+const safeDockerHost = (value) => {
+	const text = `${value ?? ""}`;
+	const scheme = /^[a-z][a-z0-9+.-]*:\/\//i.exec(text)?.[0] || "";
+	let rest = text.slice(scheme.length);
+	const at = rest.lastIndexOf("@");
+	if (at >= 0) {
+		rest = `***${rest.slice(at)}`;
+	}
+	return scheme + rest.replace(/[?#].*$/s, "");
+};
+
+/**
+ * The same for any text, eg. an error message, that can contain DOCKER_HOST or another URL with credentials:
+ * user info up to the last `@` of the URL (as far as the next white space or quote), its query and fragment
+ *
+ * @param   {string} text
+ * @returns {string}
+ */
+const withoutUrlCredentials = (text) =>
+	`${text ?? ""}`
+		.replace(/(\b[a-z][a-z0-9+.-]*:\/\/)[^\s"']*@/gi, "$1***@")
+		.replace(/(\b[a-z][a-z0-9+.-]*:\/\/[^\s"'?#]*)[?#][^\s"']*/gi, "$1");
+
+/**
+ * Parses DOCKER_HOST into node:http request options. Errors never contain credentials, see safeDockerHost().
  *
  * @param   {string} dockerHost  unix:///path, tcp://host:port or http://host:port
  * @returns {{socketPath?: string, host?: string, port?: number}}
@@ -48,11 +80,12 @@ class DockerApiError extends Error {
  */
 const parseDockerHost = (dockerHost) => {
 	const raw = `${dockerHost ?? ""}`.trim();
+	const shown = safeDockerHost(raw);
 	if (raw.startsWith("unix://")) {
 		const socketPath = raw.slice("unix://".length);
 		if (!socketPath.startsWith("/")) {
-			throw new DockerApiError(`DOCKER_HOST "${raw}" must be an absolute unix socket path.`, "EINVAL", null, {
-				value: raw,
+			throw new DockerApiError(`DOCKER_HOST "${shown}" must be an absolute unix socket path.`, "EINVAL", null, {
+				value: shown,
 				problem: "unix_path",
 			});
 		}
@@ -61,22 +94,23 @@ const parseDockerHost = (dockerHost) => {
 	if (raw.startsWith("/")) {
 		return { socketPath: raw };
 	}
-	const match = /^(?:tcp|http):\/\/(\[[^\]]+\]|[^:/]+)(?::(\d{1,5}))?\/?$/.exec(raw);
+	// no user info (`tcp://user@host`): the Docker API has no login, and `[^:/@]` keeps it out of the host name
+	const match = /^(?:tcp|http):\/\/(\[[^\]]+\]|[^:/@]+)(?::(\d{1,5}))?\/?$/.exec(raw);
 	if (match) {
 		const port = match[2] ? Number.parseInt(match[2], 10) : 2375;
 		if (port < 1 || port > 65535) {
-			throw new DockerApiError(`DOCKER_HOST "${raw}" has an invalid port.`, "EINVAL", null, {
-				value: raw,
+			throw new DockerApiError(`DOCKER_HOST "${shown}" has an invalid port.`, "EINVAL", null, {
+				value: shown,
 				problem: "port",
 			});
 		}
 		return { host: match[1].replace(/^\[|\]$/g, ""), port };
 	}
 	throw new DockerApiError(
-		`DOCKER_HOST "${raw}" is not supported. Use unix:///var/run/docker.sock or tcp://host:2375 (TLS is not supported).`,
+		`DOCKER_HOST "${shown}" is not supported. Use unix:///var/run/docker.sock or tcp://host:2375 (TLS is not supported).`,
 		"EINVAL",
 		null,
-		{ value: raw, problem: "unsupported" },
+		{ value: shown, problem: "unsupported" },
 	);
 };
 
@@ -531,11 +565,12 @@ const discoverDocker = async (opts = {}) => {
 		try {
 			fs.statSync(client.target.socketPath);
 		} catch (_) {
+			const shown = safeDockerHost(client.target.socketPath);
 			throw new DockerApiError(
-				`Docker socket ${client.target.socketPath} does not exist. Mount it, or point DOCKER_HOST at a docker-socket-proxy.`,
+				`Docker socket ${shown} does not exist. Mount it, or point DOCKER_HOST at a docker-socket-proxy.`,
 				"ENOENT",
 				null,
-				{ path: client.target.socketPath },
+				{ path: shown },
 			);
 		}
 	}
@@ -636,9 +671,9 @@ const describeDockerError = (err) => {
 		return "The Docker API denied the request. If you use a docker-socket-proxy, enable CONTAINERS=1 and NETWORKS=1.";
 	}
 	if (err instanceof DockerApiError) {
-		return err.message;
+		return withoutUrlCredentials(err.message);
 	}
-	return `Docker discovery failed: ${err.message || err.code || "unknown error"}`;
+	return withoutUrlCredentials(`Docker discovery failed: ${err.message || err.code || "unknown error"}`);
 };
 
 /**
@@ -658,7 +693,7 @@ const dockerErrorInfo = (err) => {
 		return { code: "failed", params: {} };
 	}
 	if (err.code === "ENOENT" && p.path) {
-		return { code: "socket_missing", params: { path: p.path } };
+		return { code: "socket_missing", params: { path: safeDockerHost(p.path) } };
 	}
 	if (err.code === "EACCES") {
 		return { code: "permission_denied", params: {} };
@@ -676,7 +711,7 @@ const dockerErrorInfo = (err) => {
 		return { code: "timeout", params: { seconds: p.seconds ?? REQUEST_TIMEOUT_MS / 1000 } };
 	}
 	if (err.code === "EINVAL" && p.problem) {
-		return { code: "invalid_docker_host", params: { value: `${p.value ?? ""}`, problem: p.problem } };
+		return { code: "invalid_docker_host", params: { value: safeDockerHost(p.value), problem: p.problem } };
 	}
 	if (err.code === "ESTATUS") {
 		return { code: "bad_status", params: { status: err.status ?? p.status ?? 0, path: `${p.path ?? ""}` } };
@@ -687,7 +722,7 @@ const dockerErrorInfo = (err) => {
 	if (err.code === "ESELF") {
 		return { code: "self_not_found", params: {} };
 	}
-	return { code: "failed", params: { detail: `${err.message || err.code || ""}` } };
+	return { code: "failed", params: { detail: withoutUrlCredentials(err.message || err.code || "") } };
 };
 
 export {
@@ -704,6 +739,8 @@ export {
 	looksLikeSelf,
 	ownAddresses,
 	parseDockerHost,
+	safeDockerHost,
+	withoutUrlCredentials,
 	parseLabelDomains,
 	splitLabelDomains,
 	parseMountinfoContainerId,

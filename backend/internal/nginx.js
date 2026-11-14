@@ -392,6 +392,27 @@ const mentionedInAdvanced = (advancedConfig, message) => {
 };
 
 /**
+ * The lines of nginx output a user who can't see all hosts gets: warnings (and notices) only when they name the
+ * error's own file, errors when they name that file or none. Warnings printed before an error can name other
+ * hosts' config files and server names.
+ *
+ * @param   {String}       output  nginx_output of an error
+ * @param   {String|null}  file    the file the error is about
+ * @returns {String}
+ */
+const ownNginxOutput = (output, file) =>
+	`${output}`
+		.split("\n")
+		.filter((line) => {
+			const named = / in (\/\S+?):\d+\s*$/.exec(line)?.[1] || null;
+			if (named) {
+				return !!file && named === file;
+			}
+			return !/\[(warn|notice|info|debug)\]/.test(line);
+		})
+		.join("\n");
+
+/**
  * @param   {Object} entry  an other host's file moved aside during a dry run
  * @returns {Object}
  */
@@ -1949,11 +1970,19 @@ const internalNginx = {
 	 * @returns {Object}
 	 */
 	buildOfflineMeta: (oldMeta, error, states, prefix = "") => {
+		// The host's owner reads its meta and may not see other hosts: keep only the nginx output lines about
+		// this error (warnings printed before it can name other hosts' files and domains)
+		const details =
+			error.details?.nginx_output
+				? Object.assign({}, error.details, {
+						nginx_output: ownNginxOutput(error.details.nginx_output, error.details.file) || null,
+					})
+				: error.details;
 		const meta = _.assign({}, oldMeta, {
 			nginx_online: false,
 			nginx_err: `${prefix}${error.message}`,
 			// the UI words the prefix itself
-			nginx_details: prefix ? Object.assign({}, error.details, { auto_disabled: true }) : error.details,
+			nginx_details: prefix ? Object.assign({}, details, { auto_disabled: true }) : details,
 			nginx_checked_at: new Date().toISOString(),
 		});
 		if (states) {
@@ -2063,18 +2092,29 @@ const internalNginx = {
 
 	/**
 	 * An NginxConfigError of scope "global" can name another host and include its nginx output. A user who
-	 * can't see that host only gets a generic message. Never throws, redacts when in doubt.
+	 * can't see that host only gets a generic message. The same for a global error that names no host (a file
+	 * NPM doesn't manage, eg. /data/nginx/custom/http.conf, or none): only users who can see all hosts get its
+	 * details. For everyone else, nginx_output only keeps the lines about the error itself: warnings printed
+	 * before it can name other hosts' files and domains. Never throws, redacts when in doubt.
 	 *
 	 * @param   {Object}  access  the request's Access object
 	 * @param   {Error}   err
 	 * @returns {Promise<Error>} err, modified in place
 	 */
 	redactConfigError: async (access, err) => {
-		if (!(err instanceof errs.NginxConfigError) || err.details?.scope !== "global" || !err.details.host_id) {
+		if (!(err instanceof errs.NginxConfigError) || !err.details) {
+			return err;
+		}
+		const seesAll = internalNginx.canSeeAllHosts(access);
+		if (seesAll) {
 			return err;
 		}
 		const { host_type: hostType, host_id: hostId } = err.details;
-		const visible = await internalNginx.canSeeHost(access, hostType, hostId);
+		// too_many_broken_hosts is a fixed message without nginx output
+		let visible = err.details.scope !== "global" || err.details.reason === "too_many_broken_hosts";
+		if (!visible && hostId) {
+			visible = await internalNginx.canSeeHost(access, hostType, hostId);
+		}
 		if (!visible) {
 			err.message = "Nginx rejected the configuration of another host. Please ask an administrator to check it.";
 			err.details = Object.assign({}, err.details, {
@@ -2092,8 +2132,35 @@ const internalNginx = {
 				detail: null,
 				hint_code: null,
 			});
+		} else if (err.details.nginx_output) {
+			err.details = Object.assign({}, err.details, {
+				nginx_output: ownNginxOutput(err.details.nginx_output, err.details.file) || null,
+			});
 		}
 		return err;
+	},
+
+	/**
+	 * @param   {Object}  access  the request's Access object
+	 * @returns {boolean} true for admins, and for users whose visibility is "all" and who may list every host
+	 *                    type (eg. not a streams-only manager whose proxy hosts are hidden): they may see every
+	 *                    host's nginx errors. Doesn't depend on a host row, never throws.
+	 */
+	canSeeAllHosts: (access) => {
+		try {
+			if (access?.isAdmin?.()) {
+				return true;
+			}
+			const permissions = access?.getPermissions?.();
+			return (
+				permissions?.visibility === "all" &&
+				["proxy_hosts", "redirection_hosts", "dead_hosts", "streams"].every((type) =>
+					["view", "manage"].includes(permissions[type]),
+				)
+			);
+		} catch {
+			return false;
+		}
 	},
 
 	/**

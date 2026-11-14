@@ -130,37 +130,107 @@ const isConfigFile = (resolved) => {
 };
 
 /**
+ * Reads one path segment of an include pattern the way glob(3) does. Hand-written instead of a RegExp built
+ * from the pattern: runs of `*` (or `*?*?...`) made the RegExp backtrack exponentially, and this check runs on
+ * the request path.
+ *
  * @param   {String} segment  one path segment of an include pattern
- * @returns {RegExp} what glob(3) matches with it
+ * @returns {Array<Object>|null} its parts: {star}, {any} (`?`), {char} or {ranges, negate} (`[...]`), null when
+ *                               nginx's glob would reject it (eg. an invalid range): assume it matches anything
  */
-const globSegment = (segment) => {
-	let re = "";
+const parseGlobSegment = (segment) => {
+	const parts = [];
 	for (let i = 0; i < segment.length; i++) {
 		const ch = segment[i];
 		if (ch === "\\" && i + 1 < segment.length) {
 			// glob(3) escape, nginx doesn't pass GLOB_NOESCAPE
-			re += segment[++i].replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+			parts.push({ char: segment[++i] });
 		} else if (ch === "*") {
-			re += "[^/]*";
+			// a run of stars matches the same as one
+			if (!parts.at(-1)?.star) {
+				parts.push({ star: true });
+			}
 		} else if (ch === "?") {
-			re += "[^/]";
+			parts.push({ any: true });
 		} else if (ch === "[" && segment.indexOf("]", i + 2) !== -1) {
 			const close = segment.indexOf("]", i + 2);
 			let body = segment.slice(i + 1, close);
 			const negate = body.startsWith("!") || body.startsWith("^");
-			body = (negate ? body.slice(1) : body).replace(/[\\\]^]/g, "\\$&");
-			re += `[${negate ? "^" : ""}${body}]`;
+			body = negate ? body.slice(1) : body;
+			const ranges = [];
+			for (let j = 0; j < body.length; j++) {
+				if (body[j + 1] === "-" && j + 2 < body.length) {
+					const from = body.charCodeAt(j);
+					const to = body.charCodeAt(j + 2);
+					if (from > to) {
+						return null;
+					}
+					ranges.push([from, to]);
+					j += 2;
+				} else {
+					ranges.push([body.charCodeAt(j), body.charCodeAt(j)]);
+				}
+			}
+			parts.push({ ranges, negate });
 			i = close;
 		} else {
-			re += ch.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+			parts.push({ char: ch });
 		}
 	}
-	try {
-		return new RegExp(`^${re}$`);
-	} catch {
-		// eg. an invalid range: assume it matches anything
-		return /^[^/]*$/;
+	return parts;
+};
+
+/**
+ * @param   {Object} part  one part of parseGlobSegment() other than a star
+ * @param   {String} ch
+ * @returns {boolean}
+ */
+const globPartMatches = (part, ch) => {
+	if (part.any) {
+		return true;
 	}
+	if (part.ranges) {
+		const code = ch.charCodeAt(0);
+		return part.ranges.some(([from, to]) => code >= from && code <= to) !== part.negate;
+	}
+	return part.char === ch;
+};
+
+/**
+ * Wildcard match that goes back only to the last star: at most name length x pattern length steps.
+ *
+ * @param   {String} segment  one path segment of an include pattern
+ * @param   {String} name     a directory name (no `/`)
+ * @returns {boolean} true when glob(3) matches the name with the segment
+ */
+const globSegmentMatches = (segment, name) => {
+	const parts = parseGlobSegment(segment);
+	if (parts === null) {
+		return true;
+	}
+	let p = 0;
+	let n = 0;
+	let starAt = -1;
+	let starName = 0;
+	while (n < name.length) {
+		if (p < parts.length && parts[p].star) {
+			starAt = p++;
+			starName = n;
+		} else if (p < parts.length && globPartMatches(parts[p], name[n])) {
+			p++;
+			n++;
+		} else if (starAt !== -1) {
+			// let the last star take one more character
+			p = starAt + 1;
+			n = ++starName;
+		} else {
+			return false;
+		}
+	}
+	while (p < parts.length && parts[p].star) {
+		p++;
+	}
+	return p === parts.length;
 };
 
 /**
@@ -175,7 +245,7 @@ const globMayReachManaged = (pattern) => {
 		if (segments.length <= dirSegments.length) {
 			return false;
 		}
-		return dirSegments.every((name, i) => globSegment(segments[i]).test(name));
+		return dirSegments.every((name, i) => globSegmentMatches(segments[i], name));
 	});
 };
 
@@ -262,14 +332,24 @@ const isForbiddenLogTarget = (target, directive) => {
 
 // at most this many paths are checked for one access_log after replacing variables set in the text
 const MAX_EXPANSIONS = 64;
+// and at most this many characters of expanded paths for all access_log statements of one text together:
+// repeated statements with long `set` values would otherwise cost (statements x paths x path length), a text
+// that needs more is treated as forbidden
+const MAX_EXPANDED_CHARS = 2_000_000;
 
 /**
  * @param   {String} target  access_log path
  * @param   {Map<String, String[]>} sets  values of the variables `set` in the same text
+ * @param   {{left: number}} budget  characters of expanded paths left for the whole text, reduced here
  * @returns {String[]|null} the path with every variable set in the text replaced by each of its values
  *                          (variables set to themselves, eg. `set $p $p.x`, stay), null when there are too many
+ *                          or the budget is used up
  */
-const expandSetVariables = (target, sets) => {
+const expandSetVariables = (target, sets, budget) => {
+	budget.left -= target.length;
+	if (budget.left < 0) {
+		return null;
+	}
 	let paths = [target];
 	for (let round = 0; round < 8; round++) {
 		let changed = false;
@@ -285,12 +365,15 @@ const expandSetVariables = (target, sets) => {
 				continue;
 			}
 			changed = true;
+			const before = path.slice(0, match.index);
+			const after = path.slice(match.index + match[0].length);
 			for (const value of sets.get(match[1] ?? match[2])) {
-				next.push(path.slice(0, match.index) + value + path.slice(match.index + match[0].length));
+				budget.left -= before.length + value.length + after.length;
+				if (budget.left < 0 || next.length >= MAX_EXPANSIONS) {
+					return null;
+				}
+				next.push(before + value + after);
 			}
-		}
-		if (next.length > MAX_EXPANSIONS) {
-			return null;
 		}
 		paths = next;
 		if (!changed) {
@@ -313,17 +396,21 @@ const findForbiddenFileDirective = (text) => {
 		if (directive === "set" && typeof name === "string" && /^\$\w+$/.test(name) && typeof value === "string") {
 			const key = name.slice(1);
 			// a variable set from itself would be replaced forever: keep it, it counts as one a client controls
-			if (new RegExp(`\\$(\\{${key}\\}|${key}(?!\\w))`).test(value)) {
+			if ([...value.matchAll(/\$(?:\{(\w*)\}|(\w*))/g)].some((m) => (m[1] ?? m[2]) === key)) {
 				selfSet.add(key);
 			}
-			sets.set(key, [...(sets.get(key) || []), value]);
+			if (!sets.has(key)) {
+				sets.set(key, []);
+			}
+			sets.get(key).push(value);
 		}
 	}
 	for (const key of selfSet) {
 		sets.delete(key);
 	}
+	const budget = { left: MAX_EXPANDED_CHARS };
 	for (const [directive, target] of statements) {
-		const targets = directive === "access_log" && target ? expandSetVariables(target, sets) : [target];
+		const targets = directive === "access_log" && target ? expandSetVariables(target, sets, budget) : [target];
 		if (
 			(directive === "access_log" || directive === "error_log") &&
 			(targets === null || targets.some((t) => isForbiddenLogTarget(t, directive)))
