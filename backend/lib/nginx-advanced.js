@@ -338,6 +338,13 @@ const MAX_EXPANSIONS = 64;
 const MAX_EXPANDED_CHARS = 2_000_000;
 
 /**
+ * @param   {String} text
+ * @returns {String} the text with each variable written as ${name}: the same variables for nginx, but text put
+ *          next to it can't extend its name (`$host` + `_access.log` must stay $host, not become $host_access)
+ */
+const braceVariables = (text) => text.replace(/\$(\w+)/g, (_, name) => `\${${name}}`);
+
+/**
  * @param   {String} target  access_log path
  * @param   {Map<String, String[]>} sets  values of the variables `set` in the same text
  * @param   {{left: number}} budget  characters of expanded paths left for the whole text, reduced here
@@ -365,14 +372,16 @@ const expandSetVariables = (target, sets, budget) => {
 				continue;
 			}
 			changed = true;
-			const before = path.slice(0, match.index);
-			const after = path.slice(match.index + match[0].length);
+			// variable names keep their boundaries across the replacement, see braceVariables()
+			const before = braceVariables(path.slice(0, match.index));
+			const after = braceVariables(path.slice(match.index + match[0].length));
 			for (const value of sets.get(match[1] ?? match[2])) {
-				budget.left -= before.length + value.length + after.length;
+				const expanded = before + braceVariables(value) + after;
+				budget.left -= expanded.length;
 				if (budget.left < 0 || next.length >= MAX_EXPANSIONS) {
 					return null;
 				}
-				next.push(before + value + after);
+				next.push(expanded);
 			}
 		}
 		paths = next;

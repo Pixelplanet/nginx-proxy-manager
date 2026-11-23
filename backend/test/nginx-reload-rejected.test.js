@@ -782,6 +782,44 @@ describe("a reload that nginx rejects after configs were written without reloadi
 		assert.equal(after.nginx_details.previous_config_running, undefined);
 	});
 
+	const timedOut = () => ({ confirmed: false, reason: "timed out waiting for nginx", waitedMs: 1 });
+	const offlineWithPreviousConfig = async () => {
+		const unsafe = await stream(2222, true);
+		outcomes = [rejected(GLOBAL)];
+		const meta = await internalNginx.takeUnsafeHostOffline(
+			streamModel,
+			"stream",
+			await row(unsafe),
+			conf(unsafe),
+			unsafeErr(),
+			{ reload: true, repaired: [] },
+		);
+		assert.equal(meta.nginx_details.previous_config_running, true);
+		return unsafe;
+	};
+
+	it("keeps the previous config note of an offline host while nginx doesn't confirm a reload", async () => {
+		const unsafe = await offlineWithPreviousConfig();
+		// not rejected, but not confirmed either (and neither is the extra reload that settles it): nginx may
+		// still run the removed config
+		outcomes = [timedOut(), timedOut()];
+		await internalNginx.reload();
+		assert.equal(reloads.length, 3);
+		assert.equal((await row(unsafe)).meta.nginx_details.previous_config_running, true);
+		// confirmed: the note goes
+		await internalNginx.reload();
+		assert.equal((await row(unsafe)).meta.nginx_details.previous_config_running, undefined);
+	});
+
+	it("clears the previous config note of an offline host when the reload that settles an unconfirmed one is confirmed", async () => {
+		const unsafe = await offlineWithPreviousConfig();
+		outcomes = [timedOut()];
+		await internalNginx.reload();
+		// the unconfirmed reload and the one that settles it
+		assert.equal(reloads.length, 3);
+		assert.equal((await row(unsafe)).meta.nginx_details.previous_config_running, undefined);
+	});
+
 	it("taking a host with an unsafe value offline doesn't claim nginx runs a previous config it never had", async () => {
 		const unsafe = await stream(2222, false);
 		outcomes = [rejected(GLOBAL)];
@@ -999,6 +1037,33 @@ describe("a reload that throws while looking for the rejected configs", () => {
 		);
 	});
 
+	it("keeps a new config on disk and online that a reload applied before a later reload threw", async () => {
+		// three new streams on one port: nginx binds it once the third is aside, applies the first again with it
+		// (it serves that one now), then can't be reloaded at all when the second goes back
+		const ids = [await stream(3333, true), await stream(3333, true), await stream(3333, true)];
+		sequence([rejected(), rejected(), confirmed(), confirmed(), new Error("nginx is not running")]);
+		const result = await internalNginx.isolateRejectedReload(ids.map(conf), {
+			outcome: rejected(),
+			unserved: ids.map(conf),
+			offlineOnGlobal: true,
+		});
+		assert.equal(reloads.length, 5);
+		assert.equal(result.applied, false);
+		assert.match(result.global.reason, /Could not reload nginx: nginx is not running/);
+		const [first, ...others] = ids;
+		assert.match(onDisk(first), /listen 3333/);
+		assert.equal(errFile(first), null);
+		assert.deepEqual((await row(first)).meta, ONLINE);
+		assert.deepEqual(
+			result.offline.map((h) => h.host_id),
+			others,
+		);
+		for (const id of others) {
+			assert.equal(onDisk(id), null, `stream ${id} is aside`);
+			assert.equal((await row(id)).meta.nginx_details.scope, "global");
+		}
+	});
+
 	it("puts the configs not settled back without opts.offlineOnGlobal", async () => {
 		const ids = [await stream(4000, true), await stream(4001, true)];
 		sequence([confirmed(), new Error("nginx is not running")]);
@@ -1193,6 +1258,7 @@ describe("a regeneration whose reload nginx rejects", () => {
 			summary.offline.map((o) => o.id),
 			[fresh[1]],
 		);
+		assert.equal((await row(served)).meta.nginx_online, true);
 		assert.equal((await row(fresh[0])).meta.nginx_online, true);
 		assert.equal((await row(fresh[1])).meta.nginx_details.scope, "host");
 		assert.deepEqual(retries, []);

@@ -110,6 +110,10 @@ describe("findForbiddenFileDirective", () => {
 		"set $p $p; access_log $p.log;",
 		"set $p /data/nginx/proxy_host/2.conf; access_log $p;",
 		"set $d /data/nginx/proxy_host; access_log $d/$host;",
+		// the replaced variable keeps its boundaries: still $host followed by a request variable, or by `/..`
+		"set $p $host; access_log $p$http_x;",
+		"set $p $host; access_log /data/logs/$" + "{p}/../../nginx/proxy_host/2.conf;",
+		"set $p _x; access_log /data/nginx/custom/$host$" + "{p}.conf;",
 		// becomes <id>.conf at startup when that is missing
 		"access_log /data/logs$http_x.npm-aside;",
 		// the client picks the directory of a file without an extension
@@ -148,6 +152,10 @@ describe("findForbiddenFileDirective", () => {
 		"set $p /data/logs/a.log; if ($host = x) { set $p /data/logs/b.log; } access_log $p;",
 		"access_log $host.log;",
 		"access_log $" + "{host}_access.log;",
+		// a variable set to another one keeps that one's name: $host followed by _access.log, not $host_access
+		"set $p $host; access_log $" + "{p}_access.log;",
+		"set $p /data/logs/$host; access_log $" + "{p}_access.log;",
+		"set $p _access; access_log /data/logs/$host$" + "{p}.log;",
 		// error_log has no variables: a file literally named "$http_x" below /etc/nginx/nginx/
 		"error_log $http_x;",
 		"include /data/nginx/custom/snippet.conf;",

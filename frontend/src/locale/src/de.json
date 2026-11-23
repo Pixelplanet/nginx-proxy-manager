@@ -464,9 +464,6 @@
 	"footer.github-fork": {
 		"defaultMessage": "Fork me on Github"
 	},
-	"form.unsaved-changes": {
-		"defaultMessage": "Sie haben ungespeicherte Änderungen. Möchten Sie diese wirklich verwerfen?"
-	},
 	"host-status.checked-at": {
 		"defaultMessage": "Zuletzt konfiguriert {date}"
 	},
@@ -962,20 +959,11 @@
 	"password.show": {
 		"defaultMessage": "Passwort anzeigen"
 	},
-	"permissions.allowed-proxy-hosts": {
-		"defaultMessage": "Erlaubte Proxy Hosts"
-	},
-	"permissions.allowed-proxy-hosts-help": {
-		"defaultMessage": "Gewährt zusätzlich Zugriff auf ausgewählte Proxy Hosts, die andere Benutzer erstellt haben (neben den eigenen Hosts des Benutzers)."
-	},
 	"permissions.hidden": {
 		"defaultMessage": "Versteckt"
 	},
 	"permissions.manage": {
 		"defaultMessage": "Verwalten"
-	},
-	"permissions.no-proxy-hosts": {
-		"defaultMessage": "Keine Proxy Hosts gefunden"
 	},
 	"permissions.view": {
 		"defaultMessage": "Nur anzeigen"

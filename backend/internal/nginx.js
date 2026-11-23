@@ -157,6 +157,9 @@ const settleReload = async () => {
 		const outcome = await internalNginx.reloadWaiter.reloadAndWait();
 		if (outcome.confirmed) {
 			reloadFailing = false;
+			if (previousConfigRunning.size) {
+				await internalNginx.clearPreviousConfigRunning();
+			}
 		} else {
 			reloadFailing = true;
 			logger.error(
@@ -1337,12 +1340,19 @@ const internalNginx = {
 		}
 		// the error of the last reload that threw, see reloadFailure()
 		let reloadError = null;
-		const reload = () =>
-			internalNginx.reloadNginx({ skipTest: true }).catch((err) => {
+		// the entries whose config was on disk at the last reload nginx applied: it runs them, see abortUnserved()
+		let loaded = new Set();
+		const reload = async () => {
+			const outcome = await internalNginx.reloadNginx({ skipTest: true }).catch((err) => {
 				logger.error(`Could not reload nginx: ${err.message}`);
 				reloadError = err;
 				return null;
 			});
+			if (outcome && !outcome.rejected) {
+				loaded = new Set(entries.filter((entry) => fs.existsSync(entry.filename)));
+			}
+			return outcome;
+		};
 		const reloadFailure = () => ({ reason: `Could not reload nginx: ${reloadError?.message || "unknown error"}` });
 		const putBack = (entry) => {
 			internalNginx.restoreConfig(entry.filename, entry.text);
@@ -1374,9 +1384,17 @@ const internalNginx = {
 		// config, so it runs none of the configs of opts.unserved in `list`, whether they are on disk or aside now.
 		// As when nginx rejects the reload without them, they are offline (aside, tried again later) with
 		// opts.offlineOnGlobal, or back on disk. The served configs stay as they are, and the result is not applied.
+		// A config of opts.unserved that an earlier reload of this search applied (eg. put back by isolateShared()
+		// before a later reload threw) is served now: it stays on disk and online.
 		const abortUnserved = async (list) => {
 			const failure = reloadFailure();
 			for (const entry of list.filter((e) => unserved.has(e.filename))) {
+				if (loaded.has(entry)) {
+					if (!fs.existsSync(entry.filename)) {
+						putBack(entry);
+					}
+					continue;
+				}
 				if (opts.offlineOnGlobal) {
 					if (fs.existsSync(entry.filename)) {
 						internalNginx.renameConfigAsErrorSync(entry.filename);
@@ -2307,7 +2325,9 @@ const internalNginx = {
 			reloadInDoubt = true;
 			logger.warn(`Could not confirm the nginx reload: ${outcome.reason}`);
 		}
-		if (!outcome.rejected && previousConfigRunning.size) {
+		// Only a confirmed reload: an unconfirmed one (eg. a timeout) may not have been applied, and nginx may
+		// still run the removed configs
+		if (outcome.confirmed && previousConfigRunning.size) {
 			await internalNginx.clearPreviousConfigRunning();
 		}
 		return outcome;

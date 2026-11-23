@@ -1,0 +1,1397 @@
+{
+	"2fa.backup-codes-remaining": {
+		"defaultMessage": "Códigos de backup restantes: {count}"
+	},
+	"2fa.backup-warning": {
+		"defaultMessage": "Salve estes códigos de backup em um local seguro. Cada código só pode ser usado uma vez."
+	},
+	"2fa.disable": {
+		"defaultMessage": "Desativar Autenticação em Dois Fatores"
+	},
+	"2fa.disable-confirm": {
+		"defaultMessage": "Desativar 2FA"
+	},
+	"2fa.disable-warning": {
+		"defaultMessage": "Desativar a autenticação em dois fatores deixará sua conta menos segura."
+	},
+	"2fa.disabled": {
+		"defaultMessage": "Desativada"
+	},
+	"2fa.done": {
+		"defaultMessage": "Já salvei meus códigos de backup"
+	},
+	"2fa.enable": {
+		"defaultMessage": "Ativar Autenticação em Dois Fatores"
+	},
+	"2fa.enabled": {
+		"defaultMessage": "Ativada"
+	},
+	"2fa.enter-code": {
+		"defaultMessage": "Digite o código de verificação"
+	},
+	"2fa.enter-code-disable": {
+		"defaultMessage": "Digite o código de verificação para desativar"
+	},
+	"2fa.regenerate": {
+		"defaultMessage": "Gerar Novamente"
+	},
+	"2fa.regenerate-backup": {
+		"defaultMessage": "Gerar Novos Códigos de Backup"
+	},
+	"2fa.regenerate-instructions": {
+		"defaultMessage": "Digite um código de verificação para gerar novos códigos de backup. Os códigos antigos serão invalidados."
+	},
+	"2fa.secret-key": {
+		"defaultMessage": "Chave Secreta"
+	},
+	"2fa.setup-instructions": {
+		"defaultMessage": "Escaneie este QR code com seu aplicativo autenticador ou digite a chave secreta manualmente."
+	},
+	"2fa.status": {
+		"defaultMessage": "Status"
+	},
+	"2fa.title": {
+		"defaultMessage": "Autenticação em Dois Fatores"
+	},
+	"2fa.verify-enable": {
+		"defaultMessage": "Verificar e Ativar"
+	},
+	"access-list": {
+		"defaultMessage": "Lista de Acesso"
+	},
+	"access-list.access-count": {
+		"defaultMessage": "{count} {count, plural, one {Regra} other {Regras}}"
+	},
+	"access-list.auth-count": {
+		"defaultMessage": "{count} {count, plural, one {Usuário} other {Usuários}}"
+	},
+	"access-list.help-rules-last": {
+		"defaultMessage": "Quando houver pelo menos 1 regra, esta regra de negar tudo será adicionada por último"
+	},
+	"access-list.help.rules-order": {
+		"defaultMessage": "Observe que as diretivas allow e deny serão aplicadas na ordem em que forem definidas."
+	},
+	"access-list.inherit": {
+		"defaultMessage": "Herdar do Proxy Host"
+	},
+	"access-list.inherit.subtitle": {
+		"defaultMessage": "Usa a lista de acesso do proxy host"
+	},
+	"access-list.pass-auth": {
+		"defaultMessage": "Repassar Autenticação ao Upstream"
+	},
+	"access-list.public": {
+		"defaultMessage": "Acessível Publicamente"
+	},
+	"access-list.public.subtitle": {
+		"defaultMessage": "Sem autenticação básica"
+	},
+	"access-list.rule-source.placeholder": {
+		"defaultMessage": "192.168.1.100 ou 192.168.1.0/24 ou 2001:0db8::/32"
+	},
+	"access-list.satisfy-any": {
+		"defaultMessage": "Satisfazer Qualquer"
+	},
+	"access-list.subtitle": {
+		"defaultMessage": "{users} {users, plural, one {Usuário} other {Usuários}}, {rules} {rules, plural, one {Regra} other {Regras}} - Criada em: {date}"
+	},
+	"access-lists": {
+		"defaultMessage": "Listas de Acesso"
+	},
+	"action.add": {
+		"defaultMessage": "Adicionar"
+	},
+	"action.add-location": {
+		"defaultMessage": "Adicionar Location"
+	},
+	"action.allow": {
+		"defaultMessage": "Permitir"
+	},
+	"action.clear": {
+		"defaultMessage": "Limpar"
+	},
+	"action.close": {
+		"defaultMessage": "Fechar"
+	},
+	"action.copied": {
+		"defaultMessage": "Copiado"
+	},
+	"action.copy": {
+		"defaultMessage": "Copiar"
+	},
+	"action.delete": {
+		"defaultMessage": "Excluir"
+	},
+	"action.deny": {
+		"defaultMessage": "Negar"
+	},
+	"action.disable": {
+		"defaultMessage": "Desativar"
+	},
+	"action.download": {
+		"defaultMessage": "Baixar"
+	},
+	"action.edit": {
+		"defaultMessage": "Editar"
+	},
+	"action.enable": {
+		"defaultMessage": "Ativar"
+	},
+	"action.logs": {
+		"defaultMessage": "Logs"
+	},
+	"action.permissions": {
+		"defaultMessage": "Permissões"
+	},
+	"action.renew": {
+		"defaultMessage": "Renovar"
+	},
+	"action.view-details": {
+		"defaultMessage": "Ver Detalhes"
+	},
+	"auditlogs": {
+		"defaultMessage": "Logs de Auditoria"
+	},
+	"auto": {
+		"defaultMessage": "Automático"
+	},
+	"cancel": {
+		"defaultMessage": "Cancelar"
+	},
+	"certificate": {
+		"defaultMessage": "Certificado"
+	},
+	"certificate.custom-certificate": {
+		"defaultMessage": "Certificado"
+	},
+	"certificate.custom-certificate-key": {
+		"defaultMessage": "Chave do Certificado"
+	},
+	"certificate.custom-intermediate": {
+		"defaultMessage": "Certificado Intermediário"
+	},
+	"certificate.in-use": {
+		"defaultMessage": "Em Uso"
+	},
+	"certificate.none.subtitle": {
+		"defaultMessage": "Nenhum certificado atribuído"
+	},
+	"certificate.none.subtitle.for-http": {
+		"defaultMessage": "Este host não usará HTTPS"
+	},
+	"certificate.none.title": {
+		"defaultMessage": "Nenhum"
+	},
+	"certificate.not-in-use": {
+		"defaultMessage": "Não Utilizado"
+	},
+	"certificate.renew": {
+		"defaultMessage": "Renovar Certificado"
+	},
+	"certificates": {
+		"defaultMessage": "Certificados"
+	},
+	"certificates.custom": {
+		"defaultMessage": "Certificado Personalizado"
+	},
+	"certificates.custom.warning": {
+		"defaultMessage": "Arquivos de chave protegidos por senha não são suportados."
+	},
+	"certificates.dns.credentials": {
+		"defaultMessage": "Conteúdo do Arquivo de Credenciais"
+	},
+	"certificates.dns.credentials-note": {
+		"defaultMessage": "Este plugin requer um arquivo de configuração contendo um token de API ou outras credenciais do seu provedor"
+	},
+	"certificates.dns.credentials-warning": {
+		"defaultMessage": "Estes dados serão armazenados em texto puro no banco de dados e em um arquivo!"
+	},
+	"certificates.dns.propagation-seconds": {
+		"defaultMessage": "Segundos de Propagação"
+	},
+	"certificates.dns.propagation-seconds-note": {
+		"defaultMessage": "Deixe em branco para usar o valor padrão do plugin. Número de segundos a aguardar pela propagação do DNS."
+	},
+	"certificates.dns.provider": {
+		"defaultMessage": "Provedor de DNS"
+	},
+	"certificates.dns.provider.placeholder": {
+		"defaultMessage": "Selecione um Provedor..."
+	},
+	"certificates.dns.warning": {
+		"defaultMessage": "Esta seção requer algum conhecimento sobre o Certbot e seus plugins de DNS. Consulte a documentação do respectivo plugin."
+	},
+	"certificates.http.reachability-404": {
+		"defaultMessage": "Há um servidor neste domínio, mas ele não parece ser o Nginx Proxy Manager. Verifique se o domínio aponta para o IP onde sua instância do NPM está em execução."
+	},
+	"certificates.http.reachability-failed-to-check": {
+		"defaultMessage": "Não foi possível verificar a acessibilidade devido a um erro de comunicação com o site24x7.com."
+	},
+	"certificates.http.reachability-not-resolved": {
+		"defaultMessage": "Não há nenhum servidor disponível neste domínio. Verifique se o domínio existe e aponta para o IP onde sua instância do NPM está em execução e, se necessário, se a porta 80 está redirecionada no seu roteador."
+	},
+	"certificates.http.reachability-ok": {
+		"defaultMessage": "Seu servidor está acessível e deve ser possível criar certificados."
+	},
+	"certificates.http.reachability-other": {
+		"defaultMessage": "Há um servidor neste domínio, mas ele retornou um código de status inesperado: {code}. É o servidor do NPM? Verifique se o domínio aponta para o IP onde sua instância do NPM está em execução."
+	},
+	"certificates.http.reachability-wrong-data": {
+		"defaultMessage": "Há um servidor neste domínio, mas ele retornou dados inesperados. É o servidor do NPM? Verifique se o domínio aponta para o IP onde sua instância do NPM está em execução."
+	},
+	"certificates.http.test-results": {
+		"defaultMessage": "Resultados do Teste"
+	},
+	"certificates.http.warning": {
+		"defaultMessage": "Estes domínios já devem estar configurados para apontar para esta instalação."
+	},
+	"certificates.key-type": {
+		"defaultMessage": "Tipo de Chave"
+	},
+	"certificates.key-type-description": {
+		"defaultMessage": "RSA tem ampla compatibilidade; ECDSA é mais rápido e mais seguro, mas pode não ser suportado por sistemas mais antigos"
+	},
+	"certificates.key-type-ecdsa": {
+		"defaultMessage": "ECDSA 256"
+	},
+	"certificates.key-type-rsa": {
+		"defaultMessage": "RSA 2048"
+	},
+	"certificates.request.subtitle": {
+		"defaultMessage": "com Let's Encrypt"
+	},
+	"certificates.request.title": {
+		"defaultMessage": "Solicitar um novo Certificado"
+	},
+	"column.access": {
+		"defaultMessage": "Acesso"
+	},
+	"column.authorization": {
+		"defaultMessage": "Autorização"
+	},
+	"column.authorizations": {
+		"defaultMessage": "Autorizações"
+	},
+	"column.custom-locations": {
+		"defaultMessage": "Locations Personalizados"
+	},
+	"column.destination": {
+		"defaultMessage": "Destino"
+	},
+	"column.details": {
+		"defaultMessage": "Detalhes"
+	},
+	"column.email": {
+		"defaultMessage": "E-mail"
+	},
+	"column.error": {
+		"defaultMessage": "Erro"
+	},
+	"column.event": {
+		"defaultMessage": "Evento"
+	},
+	"column.expires": {
+		"defaultMessage": "Expira em"
+	},
+	"column.http-code": {
+		"defaultMessage": "Código HTTP"
+	},
+	"column.incoming-port": {
+		"defaultMessage": "Porta de Entrada"
+	},
+	"column.name": {
+		"defaultMessage": "Nome"
+	},
+	"column.protocol": {
+		"defaultMessage": "Protocolo"
+	},
+	"column.provider": {
+		"defaultMessage": "Provedor"
+	},
+	"column.roles": {
+		"defaultMessage": "Funções"
+	},
+	"column.rules": {
+		"defaultMessage": "Regras"
+	},
+	"column.satisfy": {
+		"defaultMessage": "Satisfazer"
+	},
+	"column.satisfy-all": {
+		"defaultMessage": "Todas"
+	},
+	"column.satisfy-any": {
+		"defaultMessage": "Qualquer"
+	},
+	"column.scheme": {
+		"defaultMessage": "Esquema"
+	},
+	"column.source": {
+		"defaultMessage": "Origem"
+	},
+	"column.ssl": {
+		"defaultMessage": "SSL"
+	},
+	"column.status": {
+		"defaultMessage": "Status"
+	},
+	"created-on": {
+		"defaultMessage": "Criado em: {date}"
+	},
+	"dashboard": {
+		"defaultMessage": "Painel"
+	},
+	"dead-host": {
+		"defaultMessage": "Host 404"
+	},
+	"dead-hosts": {
+		"defaultMessage": "Hosts 404"
+	},
+	"dead-hosts.count": {
+		"defaultMessage": "{count} {count, plural, one {Host 404} other {Hosts 404}}"
+	},
+	"disabled": {
+		"defaultMessage": "Desativado"
+	},
+	"docker-labels.badge": {
+		"defaultMessage": "domínio em uso"
+	},
+	"docker-labels.exists": {
+		"defaultMessage": "{type, select, redirection_host {Um host de redirecionamento já usa um destes domínios} dead_host {Um host 404 já usa um destes domínios} other {Um proxy host já usa um destes domínios}}."
+	},
+	"docker-labels.ignored": {
+		"defaultMessage": "Não usados de npm.domain: {domains}"
+	},
+	"docker-labels.ignored-hint": {
+		"defaultMessage": "O campo de nomes de domínio recusaria estes nomes (curingas só são permitidos como *. inicial, como *.example.com)"
+	},
+	"docker-labels.not-filled": {
+		"defaultMessage": "Os nomes de domínio do label npm.domain do contêiner ({domains}) não foram preenchidos."
+	},
+	"docker-labels.used-by": {
+		"defaultMessage": "{type, select, redirection_host {Usado por um host de redirecionamento: altere-o ou remova-o primeiro} dead_host {Usado por um host 404: altere-o ou remova-o primeiro} other {Usado por um proxy host}}."
+	},
+	"domain-names": {
+		"defaultMessage": "Nomes de Domínio"
+	},
+	"domain-names.max": {
+		"defaultMessage": "Máximo de {count} nomes de domínio"
+	},
+	"domain-names.placeholder": {
+		"defaultMessage": "Comece a digitar para adicionar um domínio..."
+	},
+	"domain-names.wildcards-not-permitted": {
+		"defaultMessage": "Curingas não são permitidos para este tipo"
+	},
+	"domain-names.wildcards-not-supported": {
+		"defaultMessage": "Curingas não são suportados por esta AC"
+	},
+	"domains.advanced": {
+		"defaultMessage": "Avançado"
+	},
+	"domains.force-ssl": {
+		"defaultMessage": "Forçar SSL"
+	},
+	"domains.hsts-enabled": {
+		"defaultMessage": "HSTS Ativado"
+	},
+	"domains.hsts-subdomains": {
+		"defaultMessage": "HSTS em Subdomínios"
+	},
+	"domains.http2-support": {
+		"defaultMessage": "Suporte a HTTP/2"
+	},
+	"domains.trust-forwarded-proto": {
+		"defaultMessage": "Confiar nos Cabeçalhos Forwarded Proto do Upstream"
+	},
+	"domains.use-dns": {
+		"defaultMessage": "Usar Desafio DNS"
+	},
+	"email-address": {
+		"defaultMessage": "Endereço de e-mail"
+	},
+	"empty-search": {
+		"defaultMessage": "Nenhum resultado encontrado"
+	},
+	"empty-subtitle": {
+		"defaultMessage": "Que tal criar um?"
+	},
+	"enabled": {
+		"defaultMessage": "Ativado"
+	},
+	"error.access.at-least-one": {
+		"defaultMessage": "É necessária pelo menos uma Autorização ou uma Regra de Acesso"
+	},
+	"error.access.duplicate-usernames": {
+		"defaultMessage": "Os nomes de usuário das Autorizações devem ser únicos"
+	},
+	"error.invalid-auth": {
+		"defaultMessage": "E-mail ou senha inválidos"
+	},
+	"error.invalid-domain": {
+		"defaultMessage": "Domínio inválido: {domain}"
+	},
+	"error.invalid-email": {
+		"defaultMessage": "Endereço de e-mail inválido"
+	},
+	"error.max-character-length": {
+		"defaultMessage": "O tamanho máximo é de {max} {max, plural, one {caractere} other {caracteres}}"
+	},
+	"error.max-domains": {
+		"defaultMessage": "Domínios demais, o máximo é {max}"
+	},
+	"error.maximum": {
+		"defaultMessage": "O máximo é {max}"
+	},
+	"error.min-character-length": {
+		"defaultMessage": "O tamanho mínimo é de {min} {min, plural, one {caractere} other {caracteres}}"
+	},
+	"error.minimum": {
+		"defaultMessage": "O mínimo é {min}"
+	},
+	"error.passwords-must-match": {
+		"defaultMessage": "As senhas devem ser iguais"
+	},
+	"error.required": {
+		"defaultMessage": "Campo obrigatório"
+	},
+	"error.unknown": {
+		"defaultMessage": "Erro desconhecido"
+	},
+	"expires.on": {
+		"defaultMessage": "Expira em: {date}"
+	},
+	"footer.github-fork": {
+		"defaultMessage": "Faça um fork no GitHub"
+	},
+	"form.unsaved-changes": {
+		"defaultMessage": "Há alterações não salvas. Tem certeza de que deseja descartá-las?"
+	},
+	"host-status.checked-at": {
+		"defaultMessage": "Última configuração {date}"
+	},
+	"host-status.config-error": {
+		"defaultMessage": "O Nginx não conseguiu carregar a configuração deste host, por isso ele está offline."
+	},
+	"host-status.details": {
+		"defaultMessage": "Mostrar detalhes do status"
+	},
+	"host-status.error": {
+		"defaultMessage": "Erro"
+	},
+	"host-status.previous-config-running": {
+		"defaultMessage": "O Nginx não aplicou a configuração mais recente deste host e ainda executa a anterior."
+	},
+	"host-status.resolver-only": {
+		"defaultMessage": "{where}: o nginx não consegue resolver {target}"
+	},
+	"host-status.unreachable": {
+		"defaultMessage": "{where}: {target} não está acessível"
+	},
+	"host-status.view-error-log": {
+		"defaultMessage": "Ver log de erros"
+	},
+	"host-status.warning": {
+		"defaultMessage": "Aviso"
+	},
+	"host-test.failed": {
+		"defaultMessage": "Não foi possível executar o teste"
+	},
+	"host-test.not-saved": {
+		"defaultMessage": "Isto foi um teste, nada foi salvo."
+	},
+	"host-test.ok": {
+		"defaultMessage": "Configuração OK"
+	},
+	"host-test.ok-warnings": {
+		"defaultMessage": "Configuração OK, com avisos"
+	},
+	"host-test.quarantined": {
+		"defaultMessage": "{count, plural, =1 {O Nginx desativaria # location personalizado} other {O Nginx desativaria # locations personalizados}}"
+	},
+	"host-test.rate-limited": {
+		"defaultMessage": "Não verificado: verificações demais no último minuto"
+	},
+	"host-test.reachability": {
+		"defaultMessage": "Acessibilidade"
+	},
+	"host-test.rejected": {
+		"defaultMessage": "O Nginx rejeitaria esta configuração"
+	},
+	"host-test.stale": {
+		"defaultMessage": "O formulário foi alterado depois deste teste. Teste novamente para verificar as alterações."
+	},
+	"host-test.too-many": {
+		"defaultMessage": "Testes demais no último minuto. Tente novamente em {seconds, plural, =1 {# segundo} other {# segundos}}."
+	},
+	"host-test.warning.certificate-pending": {
+		"defaultMessage": "Um novo certificado é solicitado ao salvar. O teste verificou o host sem SSL; a parte SSL é verificada quando o certificado for adicionado."
+	},
+	"host-test.warning.other-host": {
+		"defaultMessage": "O Nginx rejeita a configuração atual de {host}. Salvar iria reparar ou desativar esse host."
+	},
+	"host-test.warning.other-host-hidden": {
+		"defaultMessage": "O Nginx rejeita a configuração atual de outro host. Salvar iria reparar ou desativar esse host. Peça a um administrador para verificá-lo."
+	},
+	"host-test.warning.rate-limited": {
+		"defaultMessage": "A acessibilidade não foi verificada: verificações de upstream demais no último minuto. Tente novamente em {seconds, plural, =1 {# segundo} other {# segundos}}."
+	},
+	"host.flags.block-exploits": {
+		"defaultMessage": "Bloquear Exploits Comuns"
+	},
+	"host.flags.cache-assets": {
+		"defaultMessage": "Cache de Assets"
+	},
+	"host.flags.preserve-path": {
+		"defaultMessage": "Preservar Caminho"
+	},
+	"host.flags.protocols": {
+		"defaultMessage": "Protocolos"
+	},
+	"host.flags.websockets-upgrade": {
+		"defaultMessage": "Suporte a WebSockets"
+	},
+	"host.forward-port": {
+		"defaultMessage": "Porta de Destino"
+	},
+	"host.forward-scheme": {
+		"defaultMessage": "Esquema"
+	},
+	"hosts": {
+		"defaultMessage": "Hosts"
+	},
+	"http-only": {
+		"defaultMessage": "Somente HTTP"
+	},
+	"lets-encrypt": {
+		"defaultMessage": "Let's Encrypt"
+	},
+	"lets-encrypt-via-dns": {
+		"defaultMessage": "Let's Encrypt via DNS"
+	},
+	"lets-encrypt-via-http": {
+		"defaultMessage": "Let's Encrypt via HTTP"
+	},
+	"loading": {
+		"defaultMessage": "Carregando…"
+	},
+	"location-check.empty_host": {
+		"defaultMessage": "O host de encaminhamento está vazio."
+	},
+	"location-check.empty_path": {
+		"defaultMessage": "O caminho do location está vazio."
+	},
+	"location-check.invalid_host": {
+		"defaultMessage": "O host de encaminhamento contém caracteres não permitidos (espaços, aspas, ;, chaves, $, # ou \\). Uma única variável do nginx, como $backend, é permitida."
+	},
+	"location-check.named_forward_path": {
+		"defaultMessage": "Um caminho de encaminhamento sem variável do nginx não pode ser usado com um location nomeado; use uma variável como $request_uri ou remova o caminho de encaminhamento."
+	},
+	"location-check.omitted": {
+		"defaultMessage": "O Nginx rejeitou este location mesmo como espaço reservado, por isso ele foi removido. O restante do host continua funcionando."
+	},
+	"location-check.regex_forward_path": {
+		"defaultMessage": "Um caminho de encaminhamento sem variável do nginx não pode ser usado com um location de expressão regular; use uma captura como /v1/$1, remova o caminho de encaminhamento ou use um location de prefixo."
+	},
+	"location-check.unbalanced_braces": {
+		"defaultMessage": "A configuração avançada deste location tem chaves desbalanceadas."
+	},
+	"location-check.unresolved": {
+		"defaultMessage": "O host \"{host}\" não pode ser resolvido no momento. As requisições para este location falham com 502 até que ele seja resolvido."
+	},
+	"location-status.disabled": {
+		"defaultMessage": "Desativado"
+	},
+	"location-status.ok": {
+		"defaultMessage": "Ativo"
+	},
+	"location-status.quarantined": {
+		"defaultMessage": "Inativo"
+	},
+	"location-status.quarantined.default": {
+		"defaultMessage": "O Nginx rejeitou este location, por isso ele foi desativado. O restante do host continua funcionando."
+	},
+	"location-status.unresolved": {
+		"defaultMessage": "Não resolvido"
+	},
+	"location-status.unresolved.default": {
+		"defaultMessage": "O host de encaminhamento não pode ser resolvido no momento. As requisições para este location falham até que ele possa ser resolvido."
+	},
+	"location.advanced": {
+		"defaultMessage": "Avançado"
+	},
+	"location.advanced-config": {
+		"defaultMessage": "Possui configuração personalizada do Nginx"
+	},
+	"location.error.duplicate-path": {
+		"defaultMessage": "Outro location já usa {path}"
+	},
+	"location.error.has-errors": {
+		"defaultMessage": "Este location tem erros"
+	},
+	"location.error.host-invalid": {
+		"defaultMessage": "O host contém caracteres não permitidos (aspas, ;, chaves, $, # ou \\)."
+	},
+	"location.error.host-whitespace": {
+		"defaultMessage": "O host não pode conter espaços"
+	},
+	"location.error.location-path-invalid": {
+		"defaultMessage": "O caminho contém caracteres não permitidos (espaços, aspas, ;, chaves, # ou \\). Coloque um caminho com espaços entre aspas duplas, por exemplo \"/meu caminho/\"."
+	},
+	"location.error.path-invalid": {
+		"defaultMessage": "Caracteres inválidos no caminho de encaminhamento (espaços, aspas, ;, chaves, # ou \\). Variáveis do nginx como $uri são permitidas."
+	},
+	"location.errors-summary": {
+		"defaultMessage": "Alguns locations personalizados têm erros"
+	},
+	"location.filter": {
+		"defaultMessage": "Filtrar por caminho ou destino"
+	},
+	"location.path-label": {
+		"defaultMessage": "Location"
+	},
+	"location.toggle-enabled": {
+		"defaultMessage": "Ativar ou desativar este location"
+	},
+	"locations.count": {
+		"defaultMessage": "+{count, plural, =1 {# location} other {# locations}}"
+	},
+	"locations.problems": {
+		"defaultMessage": "{count, plural, =1 {# problema} other {# problemas}}"
+	},
+	"login.2fa-code": {
+		"defaultMessage": "Código de Verificação"
+	},
+	"login.2fa-code-placeholder": {
+		"defaultMessage": "Digite o código"
+	},
+	"login.2fa-description": {
+		"defaultMessage": "Digite o código do seu aplicativo autenticador"
+	},
+	"login.2fa-title": {
+		"defaultMessage": "Autenticação em Dois Fatores"
+	},
+	"login.2fa-verify": {
+		"defaultMessage": "Verificar"
+	},
+	"login.title": {
+		"defaultMessage": "Acesse sua conta"
+	},
+	"logs": {
+		"defaultMessage": "Logs"
+	},
+	"logs.channel.access": {
+		"defaultMessage": "Acesso"
+	},
+	"logs.channel.error": {
+		"defaultMessage": "Erro"
+	},
+	"logs.download": {
+		"defaultMessage": "Baixar"
+	},
+	"logs.empty": {
+		"defaultMessage": "Ainda não há entradas de log."
+	},
+	"logs.level": {
+		"defaultMessage": "Nível"
+	},
+	"logs.level.all": {
+		"defaultMessage": "Todos os Níveis"
+	},
+	"logs.lines": {
+		"defaultMessage": "Linhas"
+	},
+	"logs.live": {
+		"defaultMessage": "Ao Vivo"
+	},
+	"logs.paused": {
+		"defaultMessage": "Pausado"
+	},
+	"logs.refresh": {
+		"defaultMessage": "Atualizar"
+	},
+	"logs.search-placeholder": {
+		"defaultMessage": "Pesquisar no log…"
+	},
+	"logs.source": {
+		"defaultMessage": "Origem"
+	},
+	"logs.source.system": {
+		"defaultMessage": "Sistema"
+	},
+	"logs.truncated-warning": {
+		"defaultMessage": "Apenas a parte mais recente deste arquivo é exibida."
+	},
+	"nginx-config": {
+		"defaultMessage": "Configuração do Nginx"
+	},
+	"nginx-config.label": {
+		"defaultMessage": "Configuração Personalizada do Nginx"
+	},
+	"nginx-config.placeholder": {
+		"defaultMessage": "# Insira aqui sua configuração personalizada do Nginx, por sua conta e risco!"
+	},
+	"nginx-error.advanced": {
+		"defaultMessage": "Erro na configuração personalizada do Nginx"
+	},
+	"nginx-error.advanced-line": {
+		"defaultMessage": "Erro na configuração personalizada do Nginx, linha {line}"
+	},
+	"nginx-error.auto-disabled": {
+		"defaultMessage": "Desativado automaticamente: {reason}"
+	},
+	"nginx-error.conflict": {
+		"defaultMessage": "Esta alteração entra em conflito com a configuração de outro host"
+	},
+	"nginx-error.default-site": {
+		"defaultMessage": "Não foi possível reconfigurar o site padrão. {reason}"
+	},
+	"nginx-error.field.access-list-client-address": {
+		"defaultMessage": "Endereço de cliente da lista de acesso"
+	},
+	"nginx-error.field.location-forward-host": {
+		"defaultMessage": "Host de encaminhamento do location personalizado"
+	},
+	"nginx-error.field.location-forward-path": {
+		"defaultMessage": "Caminho de encaminhamento do location personalizado"
+	},
+	"nginx-error.field.location-path": {
+		"defaultMessage": "Caminho do location personalizado"
+	},
+	"nginx-error.file": {
+		"defaultMessage": "Erro no arquivo de configuração do nginx {file}"
+	},
+	"nginx-error.file-line": {
+		"defaultMessage": "Erro no arquivo de configuração do nginx {file}, linha {line}"
+	},
+	"nginx-error.global": {
+		"defaultMessage": "O Nginx rejeitou a configuração"
+	},
+	"nginx-error.hint.address_in_use": {
+		"defaultMessage": "Outro host ou serviço já escuta nesta porta."
+	},
+	"nginx-error.hint.certificate_load": {
+		"defaultMessage": "O certificado pode ter sido excluído ou ainda não ter sido emitido. Selecione outro certificado ou renove-o."
+	},
+	"nginx-error.hint.conflict": {
+		"defaultMessage": "Outro host já usa esta configuração (por exemplo, a mesma porta de escuta com default_server), ou a configuração avançada inclui o arquivo de configuração de outro host."
+	},
+	"nginx-error.hint.directive_not_allowed": {
+		"defaultMessage": "Esta diretiva não pode ser usada neste contexto."
+	},
+	"nginx-error.hint.duplicate_directive": {
+		"defaultMessage": "Remova a duplicata. O NPM pode já definir esta diretiva para você."
+	},
+	"nginx-error.hint.duplicate_location": {
+		"defaultMessage": "Cada caminho de location só pode ser usado uma vez por host, incluindo os locations da configuração avançada."
+	},
+	"nginx-error.hint.host_not_found": {
+		"defaultMessage": "Verifique se o nome do host está escrito corretamente, se o contêiner ou servidor está em execução e se o NPM consegue alcançá-lo em uma rede compartilhada."
+	},
+	"nginx-error.hint.invalid_arguments": {
+		"defaultMessage": "Verifique se falta ou sobra algum valor, ou se falta um ponto e vírgula no fim da linha anterior."
+	},
+	"nginx-error.hint.invalid_port": {
+		"defaultMessage": "A porta deve ser um número entre 1 e 65535. Um caminho de encaminhamento deve começar com \"/\"."
+	},
+	"nginx-error.hint.invalid_regex": {
+		"defaultMessage": "Verifique a sintaxe da expressão regular do caminho do location ou do rewrite."
+	},
+	"nginx-error.hint.invalid_url": {
+		"defaultMessage": "Verifique o esquema e o host do upstream."
+	},
+	"nginx-error.hint.location_nesting": {
+		"defaultMessage": "Locations exatos (=) e nomeados (@) não podem conter outros locations."
+	},
+	"nginx-error.hint.location_not_allowed": {
+		"defaultMessage": "Locations só podem ser colocados em um bloco server ou dentro de outro location."
+	},
+	"nginx-error.hint.no_certificate": {
+		"defaultMessage": "Selecione um certificado para este host."
+	},
+	"nginx-error.hint.no_resolver": {
+		"defaultMessage": "O resolver do nginx está desativado (DISABLE_RESOLVER). Use um endereço IP ou ative o resolver."
+	},
+	"nginx-error.hint.regex_uri_part": {
+		"defaultMessage": "Remova o caminho de encaminhamento ou use um location de prefixo."
+	},
+	"nginx-error.hint.rejected_at_startup": {
+		"defaultMessage": "Salve o host novamente para trazê-lo de volta, ou deixe NPM_RECONCILE_ON_START ativado para que isso seja feito automaticamente."
+	},
+	"nginx-error.hint.unexpected_close_brace": {
+		"defaultMessage": "Verifique se cada '{' tem um '}' correspondente."
+	},
+	"nginx-error.hint.unexpected_eof": {
+		"defaultMessage": "Verifique se falta um ponto e vírgula ou um '}' de fechamento."
+	},
+	"nginx-error.hint.unexpected_open_brace": {
+		"defaultMessage": "Verifique se cada '{' tem um '}' correspondente e se a linha anterior termina com ponto e vírgula."
+	},
+	"nginx-error.hint.unexpected_semicolon": {
+		"defaultMessage": "Verifique se há um ponto e vírgula sobrando."
+	},
+	"nginx-error.hint.unknown_directive": {
+		"defaultMessage": "Verifique a grafia da diretiva. Se ela vem de um módulo do nginx, esse módulo pode não estar disponível."
+	},
+	"nginx-error.hint.unknown_variable": {
+		"defaultMessage": "Verifique a grafia da variável ou defina-a com set ou map."
+	},
+	"nginx-error.host": {
+		"defaultMessage": "O Nginx rejeitou a configuração deste host"
+	},
+	"nginx-error.location": {
+		"defaultMessage": "Erro no location personalizado {path}"
+	},
+	"nginx-error.location-advanced-line": {
+		"defaultMessage": "Erro na configuração personalizada do Nginx do location personalizado {path}, linha {line}"
+	},
+	"nginx-error.other-host": {
+		"defaultMessage": "O Nginx rejeitou a configuração de {host}"
+	},
+	"nginx-error.previous-config-running": {
+		"defaultMessage": "O Nginx continua executando a configuração anterior deste host até que um recarregamento seja bem-sucedido."
+	},
+	"nginx-error.redacted": {
+		"defaultMessage": "O Nginx rejeitou a configuração de outro host. Peça a um administrador para verificá-la."
+	},
+	"nginx-error.regenerated-conflict": {
+		"defaultMessage": "A configuração regenerada entra em conflito com a configuração de outro host"
+	},
+	"nginx-error.rejected-at-startup": {
+		"defaultMessage": "O Nginx rejeitou a configuração deste host quando o contêiner foi iniciado"
+	},
+	"nginx-error.show-output": {
+		"defaultMessage": "Mostrar saída do nginx"
+	},
+	"nginx-error.too-many-broken-hosts": {
+		"defaultMessage": "Configurações de host com defeito demais para reparar de uma vez (mais de {max}). Regenere todas as configurações de host (reinicie o NPM ou execute backend/scripts/regenerate-config) e tente novamente."
+	},
+	"nginx-error.unsafe-value": {
+		"defaultMessage": "Um valor salvo deste host não pode ser escrito na configuração do nginx com segurança, por isso a configuração dele foi removida"
+	},
+	"no-permission-error": {
+		"defaultMessage": "Você não tem permissão para visualizar isto."
+	},
+	"notfound.action": {
+		"defaultMessage": "Voltar ao início"
+	},
+	"notfound.content": {
+		"defaultMessage": "Lamentamos, mas a página que você procura não foi encontrada"
+	},
+	"notfound.title": {
+		"defaultMessage": "Ops… Você encontrou uma página de erro"
+	},
+	"notification.error": {
+		"defaultMessage": "Erro"
+	},
+	"notification.object-deleted": {
+		"defaultMessage": "{object}: exclusão concluída"
+	},
+	"notification.object-disabled": {
+		"defaultMessage": "{object}: desativação concluída"
+	},
+	"notification.object-enabled": {
+		"defaultMessage": "{object}: ativação concluída"
+	},
+	"notification.object-renewed": {
+		"defaultMessage": "{object}: renovação concluída"
+	},
+	"notification.object-saved": {
+		"defaultMessage": "{object}: alterações salvas"
+	},
+	"notification.success": {
+		"defaultMessage": "Sucesso"
+	},
+	"object.actions-title": {
+		"defaultMessage": "{object} #{id}"
+	},
+	"object.add": {
+		"defaultMessage": "Adicionar {object}"
+	},
+	"object.delete": {
+		"defaultMessage": "Excluir {object}"
+	},
+	"object.delete.content": {
+		"defaultMessage": "Tem certeza de que deseja excluir este item ({object})?"
+	},
+	"object.edit": {
+		"defaultMessage": "Editar {object}"
+	},
+	"object.empty": {
+		"defaultMessage": "Não há {objects}"
+	},
+	"object.event.created": {
+		"defaultMessage": "Criação de {object}"
+	},
+	"object.event.deleted": {
+		"defaultMessage": "Exclusão de {object}"
+	},
+	"object.event.disabled": {
+		"defaultMessage": "Desativação de {object}"
+	},
+	"object.event.enabled": {
+		"defaultMessage": "Ativação de {object}"
+	},
+	"object.event.regenerated": {
+		"defaultMessage": "{object} regenerado"
+	},
+	"object.event.renewed": {
+		"defaultMessage": "Renovação de {object}"
+	},
+	"object.event.updated": {
+		"defaultMessage": "Atualização de {object}"
+	},
+	"offline": {
+		"defaultMessage": "Offline"
+	},
+	"online": {
+		"defaultMessage": "Online"
+	},
+	"options": {
+		"defaultMessage": "Opções"
+	},
+	"password": {
+		"defaultMessage": "Senha"
+	},
+	"password.generate": {
+		"defaultMessage": "Gerar senha aleatória"
+	},
+	"password.hide": {
+		"defaultMessage": "Ocultar Senha"
+	},
+	"password.show": {
+		"defaultMessage": "Mostrar Senha"
+	},
+	"permissions.allowed-proxy-hosts": {
+		"defaultMessage": "Proxy Hosts Permitidos"
+	},
+	"permissions.allowed-proxy-hosts-help": {
+		"defaultMessage": "Concede acesso adicional aos proxy hosts selecionados que foram criados por outros usuários (além dos hosts criados pelo próprio usuário)."
+	},
+	"permissions.hidden": {
+		"defaultMessage": "Oculto"
+	},
+	"permissions.manage": {
+		"defaultMessage": "Gerenciar"
+	},
+	"permissions.no-proxy-hosts": {
+		"defaultMessage": "Nenhum proxy host encontrado"
+	},
+	"permissions.view": {
+		"defaultMessage": "Somente Visualização"
+	},
+	"permissions.visibility.all": {
+		"defaultMessage": "Todos os Itens"
+	},
+	"permissions.visibility.title": {
+		"defaultMessage": "Visibilidade dos Itens"
+	},
+	"permissions.visibility.user": {
+		"defaultMessage": "Somente Itens Criados"
+	},
+	"proxy-host": {
+		"defaultMessage": "Proxy Host"
+	},
+	"proxy-host.forward-host": {
+		"defaultMessage": "Hostname / IP de Destino"
+	},
+	"proxy-hosts": {
+		"defaultMessage": "Proxy Hosts"
+	},
+	"proxy-hosts.count": {
+		"defaultMessage": "{count} {count, plural, one {Proxy Host} other {Proxy Hosts}}"
+	},
+	"public": {
+		"defaultMessage": "Público"
+	},
+	"redirection-host": {
+		"defaultMessage": "Host de Redirecionamento"
+	},
+	"redirection-host.forward-domain": {
+		"defaultMessage": "Domínio de Destino"
+	},
+	"redirection-host.forward-http-code": {
+		"defaultMessage": "Código HTTP"
+	},
+	"redirection-hosts": {
+		"defaultMessage": "Hosts de Redirecionamento"
+	},
+	"redirection-hosts.count": {
+		"defaultMessage": "{count} {count, plural, one {Host de Redirecionamento} other {Hosts de Redirecionamento}}"
+	},
+	"redirection-hosts.http-code.300": {
+		"defaultMessage": "300 Múltiplas escolhas"
+	},
+	"redirection-hosts.http-code.301": {
+		"defaultMessage": "301 Movido permanentemente"
+	},
+	"redirection-hosts.http-code.302": {
+		"defaultMessage": "302 Movido temporariamente"
+	},
+	"redirection-hosts.http-code.303": {
+		"defaultMessage": "303 Ver outro"
+	},
+	"redirection-hosts.http-code.307": {
+		"defaultMessage": "307 Redirecionamento temporário"
+	},
+	"redirection-hosts.http-code.308": {
+		"defaultMessage": "308 Redirecionamento permanente"
+	},
+	"role.admin": {
+		"defaultMessage": "Administrador"
+	},
+	"role.standard-user": {
+		"defaultMessage": "Usuário Padrão"
+	},
+	"save": {
+		"defaultMessage": "Salvar"
+	},
+	"save-warning.offline": {
+		"defaultMessage": "Salvo, mas o nginx não conseguiu carregar este host, por isso ele está offline:"
+	},
+	"save-warning.previous-config-running": {
+		"defaultMessage": "Salvo, mas o nginx não aplicou a alteração e ainda executa a configuração anterior deste host:"
+	},
+	"save-warning.quarantined": {
+		"defaultMessage": "{count, plural, =1 {# location personalizado foi desativado porque o nginx o rejeitou.} other {# locations personalizados foram desativados porque o nginx os rejeitou.}}"
+	},
+	"save-warning.title": {
+		"defaultMessage": "Salvo com avisos"
+	},
+	"save-warning.unresolved": {
+		"defaultMessage": "{count, plural, =1 {# location personalizado aponta para um host que não pode ser resolvido no momento.} other {# locations personalizados apontam para hosts que não podem ser resolvidos no momento.}}"
+	},
+	"setting": {
+		"defaultMessage": "Configuração"
+	},
+	"settings": {
+		"defaultMessage": "Configurações"
+	},
+	"settings.default-site": {
+		"defaultMessage": "Site Padrão"
+	},
+	"settings.default-site.404": {
+		"defaultMessage": "Página 404"
+	},
+	"settings.default-site.444": {
+		"defaultMessage": "Sem Resposta (444)"
+	},
+	"settings.default-site.congratulations": {
+		"defaultMessage": "Página de Parabéns"
+	},
+	"settings.default-site.description": {
+		"defaultMessage": "O que exibir quando o Nginx receber um Host desconhecido"
+	},
+	"settings.default-site.html": {
+		"defaultMessage": "HTML Personalizado"
+	},
+	"settings.default-site.html.placeholder": {
+		"defaultMessage": "<!-- Insira aqui seu conteúdo HTML personalizado -->"
+	},
+	"settings.default-site.redirect": {
+		"defaultMessage": "Redirecionar"
+	},
+	"settings.nginx": {
+		"defaultMessage": "Configuração do Nginx"
+	},
+	"settings.nginx.regenerate.audit": {
+		"defaultMessage": "{checked, plural, =1 {# host} other {# hosts}}, {offline} offline"
+	},
+	"settings.nginx.regenerate.audit-failed": {
+		"defaultMessage": "Falhou"
+	},
+	"settings.nginx.regenerate.audit-partial": {
+		"defaultMessage": "Falhou após {checked, plural, =1 {# host} other {# hosts}}, {offline} offline"
+	},
+	"settings.nginx.regenerate.busy": {
+		"defaultMessage": "Todas as configurações de host já estão sendo regeneradas, aguarde a conclusão."
+	},
+	"settings.nginx.regenerate.button": {
+		"defaultMessage": "Regenerar todas as configurações de host"
+	},
+	"settings.nginx.regenerate.confirm-body": {
+		"defaultMessage": "Todos os arquivos de configuração de host são reescritos a partir do banco de dados e o nginx é recarregado uma vez. Os hosts que funcionam continuam online, sem tempo de inatividade."
+	},
+	"settings.nginx.regenerate.confirm-button": {
+		"defaultMessage": "Regenerar"
+	},
+	"settings.nginx.regenerate.confirm-offline": {
+		"defaultMessage": "Um host que o nginx rejeita fica offline e é listado depois, assim como ao salvar o host. Os outros hosts não são afetados."
+	},
+	"settings.nginx.regenerate.confirm-title": {
+		"defaultMessage": "Regenerar todas as configurações de host?"
+	},
+	"settings.nginx.regenerate.description": {
+		"defaultMessage": "Reescreve a partir do banco de dados o arquivo de configuração do nginx de cada proxy host, host de redirecionamento, host 404 e stream ativado, e depois recarrega o nginx uma vez. Use após uma atualização, após restaurar um backup ou quando arquivos de configuração no disco foram alterados ou perdidos."
+	},
+	"settings.nginx.regenerate.failed": {
+		"defaultMessage": "{count, plural, =1 {# host não pôde ser regenerado e mantém a configuração anterior:} other {# hosts não puderam ser regenerados e mantêm a configuração anterior:}}"
+	},
+	"settings.nginx.regenerate.offline": {
+		"defaultMessage": "{count, plural, =1 {# host está offline agora, o nginx o rejeitou:} other {# hosts estão offline agora, o nginx os rejeitou:}}"
+	},
+	"settings.nginx.regenerate.partial": {
+		"defaultMessage": "A execução falhou, mas já tinha alterado hosts. Isto é o que ela fez até então:"
+	},
+	"settings.nginx.regenerate.result": {
+		"defaultMessage": "{checked, plural, =1 {# host verificado} other {# hosts verificados}} em {seconds} s: {regenerated} online, {offline} offline, {failed} não regenerados."
+	},
+	"settings.nginx.regenerate.running": {
+		"defaultMessage": "Regenerando. Cada host é testado com o nginx, isso pode demorar um pouco."
+	},
+	"settings.nginx.regenerate.skipped": {
+		"defaultMessage": "{count, plural, =1 {# host foi ignorado, uma solicitação de certificado para ele está em andamento e o configura novamente quando terminar:} other {# hosts foram ignorados, uma solicitação de certificado para eles está em andamento e os configura novamente quando terminar:}}"
+	},
+	"settings.nginx.regenerate.title": {
+		"defaultMessage": "Regenerar todas as configurações de host"
+	},
+	"settings.nginx.regenerate.warnings": {
+		"defaultMessage": "{count, plural, =1 {# host está online, mas alguns dos locations personalizados dele não funcionam:} other {# hosts estão online, mas alguns dos locations personalizados deles não funcionam:}}"
+	},
+	"setup.preamble": {
+		"defaultMessage": "Para começar, crie sua conta de administrador."
+	},
+	"setup.title": {
+		"defaultMessage": "Bem-vindo!"
+	},
+	"sign-in": {
+		"defaultMessage": "Entrar"
+	},
+	"ssl-certificate": {
+		"defaultMessage": "Certificado SSL"
+	},
+	"stream": {
+		"defaultMessage": "Stream"
+	},
+	"stream.forward-host": {
+		"defaultMessage": "Host de Destino"
+	},
+	"stream.forward-host.placeholder": {
+		"defaultMessage": "example.com ou 10.0.0.1 ou 2001:db8:3333:4444:5555:6666:7777:8888"
+	},
+	"stream.incoming-port": {
+		"defaultMessage": "Porta de Entrada"
+	},
+	"streams": {
+		"defaultMessage": "Streams"
+	},
+	"streams.count": {
+		"defaultMessage": "{count} {count, plural, one {Stream} other {Streams}}"
+	},
+	"streams.tcp": {
+		"defaultMessage": "TCP"
+	},
+	"streams.udp": {
+		"defaultMessage": "UDP"
+	},
+	"test": {
+		"defaultMessage": "Testar"
+	},
+	"update-available": {
+		"defaultMessage": "Atualização Disponível: {latestVersion}"
+	},
+	"upstream.check.checking": {
+		"defaultMessage": "Verificando…"
+	},
+	"upstream.check.detail.dns_not_found": {
+		"defaultMessage": "Verifique a grafia e se o contêiner está em execução e na mesma rede Docker que o Nginx Proxy Manager."
+	},
+	"upstream.check.detail.dns_timeout": {
+		"defaultMessage": "O servidor DNS não respondeu a tempo."
+	},
+	"upstream.check.detail.invalid_host": {
+		"defaultMessage": "\"{host}\" não é um nome de host ou endereço IP válido."
+	},
+	"upstream.check.detail.invalid_host_empty": {
+		"defaultMessage": "Digite um nome de host ou endereço IP."
+	},
+	"upstream.check.detail.no_resolver": {
+		"defaultMessage": "O resolver do nginx está desativado (DISABLE_RESOLVER) e o nginx resolve este upstream a cada requisição: as requisições falham. Use um endereço IP ou ative o resolver."
+	},
+	"upstream.check.detail.resolver_mismatch": {
+		"defaultMessage": "Somente /etc/hosts ou um domínio de busca do resolv.conf encontra \"{host}\", não o resolver DNS do nginx. Funciona apenas com um upstream estático (resolvido no carregamento)."
+	},
+	"upstream.check.detail.resolver_required": {
+		"defaultMessage": "Somente /etc/hosts ou um domínio de busca do resolv.conf encontra \"{host}\". O nginx resolve este upstream a cada requisição pelo seu resolver DNS, que não o encontra: as requisições falham. Use um nome que o resolver encontre (por exemplo, o nome do contêiner em uma rede Docker compartilhada) ou um endereço IP."
+	},
+	"upstream.check.detail.tcp_refused": {
+		"defaultMessage": "O host existe, mas nada está escutando na porta {port}."
+	},
+	"upstream.check.detail.tcp_timeout": {
+		"defaultMessage": "Um firewall pode estar descartando o tráfego, ou o host está fora do ar."
+	},
+	"upstream.check.detail.tcp_unreachable": {
+		"defaultMessage": "Não há rota do Nginx Proxy Manager para este host."
+	},
+	"upstream.check.disabled": {
+		"defaultMessage": "Verificação desativada"
+	},
+	"upstream.check.dns_not_found": {
+		"defaultMessage": "Host não encontrado"
+	},
+	"upstream.check.dns_timeout": {
+		"defaultMessage": "A consulta DNS expirou"
+	},
+	"upstream.check.invalid_host": {
+		"defaultMessage": "Nome de host inválido"
+	},
+	"upstream.check.no_resolver": {
+		"defaultMessage": "Sem resolver do nginx"
+	},
+	"upstream.check.ok": {
+		"defaultMessage": "Acessível"
+	},
+	"upstream.check.ok-ms": {
+		"defaultMessage": "Acessível ({ms} ms)"
+	},
+	"upstream.check.resolver_mismatch": {
+		"defaultMessage": "Resolvido apenas via /etc/hosts ou domínios de busca"
+	},
+	"upstream.check.tcp_refused": {
+		"defaultMessage": "Conexão recusada"
+	},
+	"upstream.check.tcp_timeout": {
+		"defaultMessage": "A conexão expirou"
+	},
+	"upstream.check.tcp_unreachable": {
+		"defaultMessage": "Host inacessível"
+	},
+	"upstream.check.variable": {
+		"defaultMessage": "variável do nginx"
+	},
+	"upstream.check.variable-tip": {
+		"defaultMessage": "Definida na configuração avançada e resolvida pelo nginx a cada requisição, por isso não é verificada aqui."
+	},
+	"upstream.check.variable-tip-main": {
+		"defaultMessage": "Resolvida pelo nginx a cada requisição, por isso não é verificada aqui. Ela precisa de um valor antes de a configuração avançada deste host ser executada, por exemplo de um map em /data/nginx/custom/http.conf; um set na configuração avançada chega tarde demais."
+	},
+	"upstream.compose-service": {
+		"defaultMessage": "Serviço Compose de {container}"
+	},
+	"upstream.container-state": {
+		"defaultMessage": "{state, select, created {Criado} restarting {Reiniciando} paused {Pausado} exited {Encerrado} removing {Removendo} dead {Morto} other {{state}}}"
+	},
+	"upstream.docker-disabled": {
+		"defaultMessage": "A descoberta Docker está desativada."
+	},
+	"upstream.docker-error.api_denied": {
+		"defaultMessage": "A API do Docker negou a requisição. Se você usa um docker-socket-proxy, ative CONTAINERS=1 e NETWORKS=1 nele."
+	},
+	"upstream.docker-error.bad_response": {
+		"defaultMessage": "A resposta da API do Docker é grande demais ou não é um JSON válido."
+	},
+	"upstream.docker-error.bad_status": {
+		"defaultMessage": "A API do Docker respondeu {status} para {path}."
+	},
+	"upstream.docker-error.connection_refused": {
+		"defaultMessage": "A conexão com a API do Docker foi recusada. Verifique DOCKER_HOST e se o socket proxy está em execução."
+	},
+	"upstream.docker-error.failed": {
+		"defaultMessage": "Erro inesperado."
+	},
+	"upstream.docker-error.host_not_found": {
+		"defaultMessage": "O nome de host em DOCKER_HOST não pôde ser resolvido."
+	},
+	"upstream.docker-error.invalid_docker_host": {
+		"defaultMessage": "{problem, select, unix_path {DOCKER_HOST \"{value}\" deve ser um caminho absoluto de socket unix.} port {DOCKER_HOST \"{value}\" tem uma porta inválida.} other {DOCKER_HOST \"{value}\" não é suportado. Use unix:///var/run/docker.sock ou tcp://host:2375 (TLS não é suportado).}}"
+	},
+	"upstream.docker-error.permission_denied": {
+		"defaultMessage": "Permissão negada no socket do Docker. O backend é executado como PUID/PGID sem grupos suplementares; use um docker-socket-proxy (DOCKER_HOST=tcp://...) em vez disso."
+	},
+	"upstream.docker-error.self_not_found": {
+		"defaultMessage": "O próprio contêiner do Nginx Proxy Manager não foi encontrado pela API do Docker, por isso as redes dele são desconhecidas."
+	},
+	"upstream.docker-error.socket_missing": {
+		"defaultMessage": "O socket do Docker {path} não existe. Monte-o ou aponte DOCKER_HOST para um docker-socket-proxy."
+	},
+	"upstream.docker-error.timeout": {
+		"defaultMessage": "A API do Docker não respondeu em {seconds, plural, =1 {# segundo} other {# segundos}}."
+	},
+	"upstream.docker-help": {
+		"defaultMessage": "Configurar"
+	},
+	"upstream.docker-labels": {
+		"defaultMessage": "Labels do Docker"
+	},
+	"upstream.docker-unavailable": {
+		"defaultMessage": "A descoberta Docker não funciona."
+	},
+	"upstream.free-text": {
+		"defaultMessage": "Você também pode digitar qualquer nome de host ou endereço IP."
+	},
+	"upstream.group.dns": {
+		"defaultMessage": "Descoberto na rede"
+	},
+	"upstream.group.docker": {
+		"defaultMessage": "Contêineres Docker"
+	},
+	"upstream.group.history": {
+		"defaultMessage": "Usado antes"
+	},
+	"upstream.network": {
+		"defaultMessage": "Rede: {network}"
+	},
+	"upstream.no-options": {
+		"defaultMessage": "Sem sugestões, digite um nome de host ou endereço IP"
+	},
+	"upstream.ports": {
+		"defaultMessage": "Portas: {ports}"
+	},
+	"upstream.use-value": {
+		"defaultMessage": "Usar \"{value}\""
+	},
+	"upstream.used-by": {
+		"defaultMessage": "usado por {count, plural, =1 {# host} other {# hosts}}"
+	},
+	"user": {
+		"defaultMessage": "Usuário"
+	},
+	"user.change-password": {
+		"defaultMessage": "Alterar Senha"
+	},
+	"user.confirm-password": {
+		"defaultMessage": "Confirmar Senha"
+	},
+	"user.current-password": {
+		"defaultMessage": "Senha Atual"
+	},
+	"user.edit-profile": {
+		"defaultMessage": "Editar Perfil"
+	},
+	"user.full-name": {
+		"defaultMessage": "Nome Completo"
+	},
+	"user.login-as": {
+		"defaultMessage": "Entrar como {name}"
+	},
+	"user.logout": {
+		"defaultMessage": "Sair"
+	},
+	"user.new-password": {
+		"defaultMessage": "Nova Senha"
+	},
+	"user.nickname": {
+		"defaultMessage": "Apelido"
+	},
+	"user.set-password": {
+		"defaultMessage": "Definir Senha"
+	},
+	"user.set-permissions": {
+		"defaultMessage": "Definir Permissões de {name}"
+	},
+	"user.switch-dark": {
+		"defaultMessage": "Mudar para o modo Escuro"
+	},
+	"user.switch-light": {
+		"defaultMessage": "Mudar para o modo Claro"
+	},
+	"user.two-factor": {
+		"defaultMessage": "Autenticação em Dois Fatores"
+	},
+	"username": {
+		"defaultMessage": "Nome de Usuário"
+	},
+	"users": {
+		"defaultMessage": "Usuários"
+	}
+}

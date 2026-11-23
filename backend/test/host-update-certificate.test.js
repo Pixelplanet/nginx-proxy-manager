@@ -391,6 +391,39 @@ for (const type of types) {
 			assert.deepEqual(deleted, []);
 			assert.deepEqual(await liveCertificates(), issued);
 		});
+		if (type.table !== "stream") {
+			const createWith = (ssl) =>
+				internal.create(access, {
+					...type.create(`create-${nextDomain++}.example.com`),
+					certificate_id: "new",
+					...ssl,
+				});
+			const saved = async (id) => {
+				const row = await db(type.table).where("id", id).first();
+				return [row.ssl_forced, row.http2_support, row.hsts_enabled, row.hsts_subdomains].map(Boolean);
+			};
+
+			it("keeps the SSL options submitted with it once the certificate is there", async () => {
+				const row = await createWith({
+					ssl_forced: true,
+					http2_support: true,
+					hsts_enabled: true,
+					hsts_subdomains: true,
+				});
+				assert.equal(row.certificate_id, issued[0]);
+				assert.deepEqual(await saved(row.id), [true, true, true, true]);
+			});
+
+			it("saves the submitted SSL options cleaned, eg. no HSTS without Force SSL", async () => {
+				const row = await createWith({
+					ssl_forced: false,
+					http2_support: true,
+					hsts_enabled: true,
+					hsts_subdomains: true,
+				});
+				assert.deepEqual(await saved(row.id), [false, true, false, false]);
+			});
+		}
 	});
 }
 
