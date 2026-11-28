@@ -16,7 +16,7 @@ import {
 	UpstreamField,
 	usePrefillGuard,
 } from "src/components";
-import { FormModal } from "src/components/Form";
+import { FormModal, HOST_MODAL_SIZE } from "src/components/Form";
 import { useHostConfigTest, useSetStream, useStream } from "src/hooks";
 import { intl, T } from "src/locale";
 import { validateNumber, validateString } from "src/modules/Validations";
@@ -93,7 +93,7 @@ const StreamModal = EasyModal.create(({ id, visible, remove }: Props) => {
 	return (
 		<>
 			{(isLoading || (error && !data)) && (
-				<Modal show={visible} onHide={remove}>
+				<Modal show={visible} onHide={remove} size={HOST_MODAL_SIZE}>
 					{!isLoading && error && (
 						<Alert variant="danger" className="m-3">
 							{error?.message || "Unknown error"}
@@ -104,6 +104,7 @@ const StreamModal = EasyModal.create(({ id, visible, remove }: Props) => {
 			)}
 			{!isLoading && data && (
 				<FormModal
+					size={HOST_MODAL_SIZE}
 					show={visible}
 					onHide={remove}
 					preventHide={isSubmitting}
@@ -201,7 +202,7 @@ const StreamModal = EasyModal.create(({ id, visible, remove }: Props) => {
 													)}
 												</Field>
 												<div className="row">
-													<div className="col-md-8">
+													<div className="col-md-8 col-lg-9">
 														<Field name="forwardingHost" validate={validateString(1, 255)}>
 															{({ field, form }: any) => (
 																<div className="mb-3">
@@ -258,7 +259,7 @@ const StreamModal = EasyModal.create(({ id, visible, remove }: Props) => {
 															)}
 														</Field>
 													</div>
-													<div className="col-md-4">
+													<div className="col-md-4 col-lg-3">
 														<Field
 															name="forwardingPort"
 															validate={validateNumber(1, 65535)}

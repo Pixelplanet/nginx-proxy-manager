@@ -3,6 +3,10 @@ import { type ReactNode, useEffect } from "react";
 import Modal from "react-bootstrap/Modal";
 import { intl } from "src/locale";
 
+// The host dialogs (proxy, redirection, 404, stream): wide enough for the forward host picker and its
+// suggestions, the custom location cards and the advanced config. Phones still get the full width.
+const HOST_MODAL_SIZE = "lg";
+
 const confirmDiscardChanges = (dirty: boolean) =>
 	!dirty ||
 	window.confirm(
@@ -25,6 +29,8 @@ interface FormModalProps<Values extends FormikValues> extends Omit<FormikConfig<
 	show: boolean;
 	onHide: () => void;
 	preventHide?: boolean;
+	// Bootstrap modal width ("lg": 800px from the lg breakpoint, full width on phones as always)
+	size?: "sm" | "lg" | "xl";
 	children: (props: FormikProps<Values> & { onHide: () => void }) => ReactNode;
 }
 
@@ -32,6 +38,7 @@ const FormModal = <Values extends FormikValues>({
 	show,
 	onHide,
 	preventHide = false,
+	size,
 	children,
 	...formikProps
 }: FormModalProps<Values>) => (
@@ -44,7 +51,7 @@ const FormModal = <Values extends FormikValues>({
 			};
 
 			return (
-				<Modal show={show} onHide={handleHide}>
+				<Modal show={show} onHide={handleHide} size={size}>
 					{children({ ...formikProps, onHide: handleHide })}
 				</Modal>
 			);
@@ -52,4 +59,4 @@ const FormModal = <Values extends FormikValues>({
 	</Formik>
 );
 
-export { confirmDiscardChanges, FormDirtyState, FormModal };
+export { confirmDiscardChanges, FormDirtyState, FormModal, HOST_MODAL_SIZE };

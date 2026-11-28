@@ -31,7 +31,7 @@ import {
 	useLabelPrefill,
 	usePrefillGuard,
 } from "src/components";
-import { confirmDiscardChanges, FormModal } from "src/components/Form";
+import { confirmDiscardChanges, FormModal, HOST_MODAL_SIZE } from "src/components/Form";
 import { useHostConfigTest, useProxyHost, useSetProxyHost, useUser } from "src/hooks";
 import { intl, T } from "src/locale";
 import {
@@ -313,7 +313,7 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 	return (
 		<>
 			{(isLoading || userIsLoading || ((error || userError) && (!data || !currentUser))) && (
-				<Modal show={visible} onHide={remove}>
+				<Modal show={visible} onHide={remove} size={HOST_MODAL_SIZE}>
 					{!isLoading && (error || userError) && (
 						<Alert variant="danger" className="m-3">
 							{error?.message || userError?.message || "Unknown error"}
@@ -324,6 +324,7 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 			)}
 			{!isLoading && !userIsLoading && data && currentUser && (
 				<FormModal
+					size={HOST_MODAL_SIZE}
 					show={visible}
 					onHide={remove}
 					preventHide={isSubmitting}
@@ -427,7 +428,7 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 													onOpen={(existing) => openExisting(form, existing)}
 												/>
 												<div className="row">
-													<div className="col-sm-3 col-md-3">
+													<div className="col-sm-3 col-md-3 col-lg-2">
 														<Field name="forwardScheme">
 															{({ field, form }: any) => (
 																<div className="mb-3">
@@ -458,7 +459,7 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 															)}
 														</Field>
 													</div>
-													<div className="col-sm-5 col-md-5">
+													<div className="col-sm-5 col-md-5 col-lg-7">
 														<Field name="forwardHost" validate={validateForwardHost}>
 															{({ field, form }: any) => (
 																<div className="mb-3">
@@ -503,7 +504,7 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 															)}
 														</Field>
 													</div>
-													<div className="col-sm-4 col-md-4">
+													<div className="col-sm-4 col-md-4 col-lg-3">
 														<Field name="forwardPort" validate={validateNumber(1, 65535)}>
 															{({ field, form }: any) => (
 																<div className="mb-3">

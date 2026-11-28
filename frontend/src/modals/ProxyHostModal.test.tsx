@@ -152,6 +152,16 @@ const open = async (id: number | "new" = 1) => {
 const selected = () => screen.getAllByRole("tab").find((t) => t.getAttribute("aria-selected") === "true");
 
 describe("ProxyHostModal tabs", () => {
+	it("opens as a wide dialog, with the forward host using the extra width", async () => {
+		await open();
+		expect(document.querySelector(".modal-dialog")).toHaveClass("modal-lg");
+		// scheme and port need little room, the forward host picker gets the rest from the lg breakpoint
+		const col = (id: string) => document.getElementById(id)?.closest("[class*=col-]");
+		expect(col("forwardScheme")).toHaveClass("col-sm-3", "col-lg-2");
+		expect(col("forwardHost")).toHaveClass("col-sm-5", "col-lg-7");
+		expect(col("forwardPort")).toHaveClass("col-sm-4", "col-lg-3");
+	});
+
 	it("keeps only the active tab in the tab order", async () => {
 		const tabs = await open();
 		expect(tabs).toHaveLength(4);

@@ -7,6 +7,7 @@ import {
 	useCallback,
 	useContext,
 	useEffect,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -18,6 +19,7 @@ import {
 	type GroupBase,
 	type InputProps,
 	type MenuListProps,
+	type MenuProps,
 	type OptionProps,
 	type SingleValue,
 } from "react-select";
@@ -493,6 +495,46 @@ export function DockerLabelsHelp() {
 	);
 }
 
+// The suggestion menu is at least this wide, also under a narrow input (a location card's forward host), so the
+// container details fit on fewer lines. Never wider than the viewport.
+export const MENU_MIN_WIDTH = "min(36rem, 90vw)";
+// Space kept free between a shifted menu and the edge of the viewport
+const MENU_EDGE = 8;
+
+/**
+ * Keeps a menu wider than its input on screen: it stays left-aligned with the input, and only when that would
+ * reach past the right edge of the viewport is it moved left, as far as needed and never past the left edge.
+ */
+export const fitMenuInViewport = (el: HTMLElement | null) => {
+	if (!el) return;
+	el.style.transform = "";
+	const rect = el.getBoundingClientRect();
+	const viewport = document.documentElement.clientWidth || window.innerWidth;
+	const overflow = rect.right - (viewport - MENU_EDGE);
+	if (overflow > 0) {
+		const shift = Math.min(overflow, Math.max(0, rect.left - MENU_EDGE));
+		if (shift > 0) el.style.transform = `translateX(-${shift}px)`;
+	}
+};
+
+const Menu = (props: MenuProps<UpstreamOption, false, GroupBase<UpstreamOption>>) => {
+	const node = useRef<HTMLDivElement | null>(null);
+	const { innerRef } = props;
+	const setRef = useCallback(
+		(el: HTMLDivElement | null) => {
+			node.current = el;
+			// a callback or a ref object, depending on the react-select version
+			const ref = innerRef as unknown;
+			if (typeof ref === "function") ref(el);
+			else if (ref && typeof ref === "object") (ref as { current: HTMLDivElement | null }).current = el;
+		},
+		[innerRef],
+	);
+	// every render: the options (and so the width) change while typing
+	useLayoutEffect(() => fitMenuInViewport(node.current));
+	return <components.Menu {...props} innerRef={setRef} />;
+};
+
 // Menu with a footer: a hint how to enable Docker discovery (or that free text
 // works), and a button to refresh the suggestions.
 function MenuList(props: MenuListProps<UpstreamOption, false, GroupBase<UpstreamOption>>) {
@@ -726,7 +768,7 @@ export function UpstreamField({
 								isClearable
 								isLoading={!candidates && query.isFetching}
 								placeholder={placeholder}
-								components={{ Option, MenuList, Input }}
+								components={{ Menu, Option, MenuList, Input }}
 								menuIsOpen={menuIsOpen}
 								onMenuOpen={() => {
 									setWanted(true);
@@ -770,6 +812,8 @@ export function UpstreamField({
 								loadingMessage={() => intl.formatMessage({ id: "loading" })}
 								styles={{
 									option: (base) => ({ ...base, height: "100%" }),
+									// left-aligned with the input, at least MENU_MIN_WIDTH wide (see fitMenuInViewport)
+									menu: (base) => ({ ...base, minWidth: MENU_MIN_WIDTH }),
 									control: (base) =>
 										isInvalid
 											? { ...base, borderColor: "var(--tblr-form-invalid-border-color)" }

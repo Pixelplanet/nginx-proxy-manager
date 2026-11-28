@@ -17,7 +17,7 @@ import {
 	SSLOptionsFields,
 	TestConfigButton,
 } from "src/components";
-import { FormModal } from "src/components/Form";
+import { FormModal, HOST_MODAL_SIZE } from "src/components/Form";
 import { useDeadHost, useHostConfigTest, useSetDeadHost, useUser } from "src/hooks";
 import { T } from "src/locale";
 import { formatApiError, getNginxErrorDetails, hasSaveWarnings, stripServerMeta } from "src/modules/HostStatus";
@@ -103,7 +103,7 @@ const DeadHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 	return (
 		<>
 			{(isLoading || userIsLoading || ((error || userError) && (!data || !currentUser))) && (
-				<Modal show={visible} onHide={remove}>
+				<Modal show={visible} onHide={remove} size={HOST_MODAL_SIZE}>
 					{!isLoading && (error || userError) && (
 						<Alert variant="danger" className="m-3">
 							{error?.message || userError?.message || "Unknown error"}
@@ -114,6 +114,7 @@ const DeadHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 			)}
 			{!isLoading && !userIsLoading && data && currentUser && (
 				<FormModal
+					size={HOST_MODAL_SIZE}
 					show={visible}
 					onHide={remove}
 					preventHide={isSubmitting}
