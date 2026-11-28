@@ -38,6 +38,8 @@ All labels are optional. Values are strings in YAML, so quote them.
 | `npm.block_exploits` | boolean | Turns on *Block Common Exploits* (new host only). |
 | `npm.caching` | boolean | Turns on *Cache Assets* (new host only). |
 | `npm.http2` | boolean | Turns on *HTTP/2 Support* once the user picks a certificate (HTTP/2 needs one). |
+| `npm.path` | Custom location path, e.g. `"/api/"` | The container is a **custom location** of the host for its `npm.domain`, not a host of its own: NPM offers it as a ready-made location on that host (*Custom Locations* tab, "Add"), and picking it in a location card fills the path. Its domains are never filled into *Domain Names* and never count as "domain in use". Checked like the location path field (no spaces, `;`, `{`, `}`, quotes or `#`; modifiers like `^~ /static/` are allowed); an invalid value is dropped and shown under the container. |
+| `npm.forward_path` | Path sent to the container, e.g. `"/"` | Only with `npm.path`. `"/"` strips the location path (`/api/orders` arrives as `/orders`); leave it out to pass the request path unchanged (`/api/orders` arrives as `/api/orders`). |
 | `npm.hide` | boolean | Never suggest this container. It is also left out of the network DNS discovery, as long as Docker discovery works (DNS discovery alone can't read labels). Use it for databases, caches, the socket proxy and other internal services. |
 
 Booleans accept `true`/`false`, `yes`/`no`, `on`/`off` and `1`/`0` (any case). Anything else counts as
@@ -62,6 +64,12 @@ unset.
    forward host. Renaming a container later breaks hosts that point at the old name.
 8. **Label internal helpers with `npm.hide: "true"`** if they share the proxy network (databases,
    Redis, workers, socket proxy).
+9. **Frontend and API on one domain: give both the same `npm.domain`, and the API `npm.path`.** The
+   container serving `/` gets the usual host labels; the one that lives under a path gets `npm.path` (and
+   `npm.forward_path: "/"` if it expects requests without the prefix, i.e. its routes start at `/`; leave
+   it out if its routes already start with the prefix, e.g. `/api/...`). Never give the API its own domain
+   just to make it discoverable, and never set `npm.path: "/"` (that is the proxy host itself). Check the
+   app's base path before choosing: a backend mounted at `/api` in its own code needs the prefix kept.
 
 ## Example
 
@@ -117,6 +125,58 @@ An app that listens on several ports and serves TLS itself:
       npm.http2: "true"
 ```
 
+A frontend and its API on one domain. Two typical cases: the landing page's donation service has its
+routes at `/` (so `/api/` is stripped), the shop's backend has its routes under `/api/` (so the prefix is
+kept):
+
+```yaml
+services:
+  landing:                      # proxy host lasertools.example.com -> landing:80
+    image: example/landing
+    container_name: landing
+    networks: [proxy]
+    labels:
+      npm.domain: "lasertools.example.com"
+      npm.port: "80"
+      npm.block_exploits: "true"
+
+  donations:                    # custom location /api/ -> donations:3000/, /api/donate arrives as /donate
+    image: example/donation-tracker
+    container_name: donations
+    networks: [proxy]
+    labels:
+      npm.domain: "lasertools.example.com"
+      npm.path: "/api/"
+      npm.forward_path: "/"
+      npm.port: "3000"
+
+  shop-web:                     # proxy host shop.example.com -> shop-web:8080
+    image: example/shop-web
+    container_name: shop-web
+    networks: [proxy]
+    labels:
+      npm.domain: "shop.example.com"
+      npm.port: "8080"
+      npm.websocket: "true"
+
+  shop-api:                     # custom location /api/ -> shop-api:5000, /api/cart arrives as /api/cart
+    image: example/shop-api
+    container_name: shop-api
+    networks: [proxy]
+    labels:
+      npm.domain: "shop.example.com"
+      npm.path: "/api/"         # no npm.forward_path: the backend's routes start with /api/
+      npm.port: "5000"
+
+networks:
+  proxy:
+    external: true
+```
+
+The user creates the proxy host by picking `landing` (or `shop-web`); the *Custom Locations* tab then
+offers `/api/ → http://donations:3000/` (or `/api/ → http://shop-api:5000`) with an *Add* button. Picking
+the API container as the main forward host still works but shows a hint to add it as a location instead.
+
 ## The NPM side (only once per server)
 
 Docker discovery needs read access to the Docker API through a socket proxy. Don't mount
@@ -169,4 +229,8 @@ networks:
   `npm.hide`, and that the container was recreated after the labels changed.
 - If the port is empty: the image exposes several ports and `npm.port` is missing.
 - If the domain is not filled: another host already uses it (the option shows "domain in use"), or the
-  name was invalid (shown as "ignored").
+  name was invalid (shown as "ignored"). A container with `npm.path` never fills the domain: it belongs
+  to the host of that domain as a custom location.
+- If a path container isn't offered on the *Custom Locations* tab: its `npm.domain` doesn't match one of
+  the host's domain names exactly, the host already has a location with that path, or `npm.path` was
+  invalid (shown under the container in the picker).

@@ -7,9 +7,11 @@ import {
 	candidatePrefill,
 	DockerLabelsHelp,
 	existingHostOf,
+	fitMenuInViewport,
 	groupCandidates,
 	LabelPrefillHint,
 	labelPrefill,
+	MENU_MIN_WIDTH,
 	optionFilterText,
 	UpstreamField,
 } from "./UpstreamField";
@@ -195,6 +197,15 @@ describe("UpstreamField", () => {
 		// the "running" state as the common "Online"
 		expect(screen.getByText("Online")).toBeInTheDocument();
 		expect(screen.getByText(/Ports: 8080, 9090/)).toBeInTheDocument();
+	});
+
+	it("opens a menu at least MENU_MIN_WIDTH wide, also under a narrow input", () => {
+		render(<Harness candidates={data()} />);
+		openMenu();
+		const menu = document.querySelector(".react-select__menu") as HTMLElement;
+		expect(MENU_MIN_WIDTH).toBe("min(36rem, 90vw)");
+		// jsdom resolves the units: min(36rem, 90vw) of a 1024px wide window
+		expect(getComputedStyle(menu).minWidth).toBe("min(576px, 921.6px)");
 	});
 
 	it("selecting a candidate sets the host and reports the prefill", () => {
@@ -511,6 +522,41 @@ describe("UpstreamField keyboard", () => {
 	});
 });
 
+describe("fitMenuInViewport", () => {
+	const menuAt = (left: number, width: number) => {
+		const el = document.createElement("div");
+		el.getBoundingClientRect = () => ({ left, right: left + width, width }) as DOMRect;
+		return el;
+	};
+	const viewport = (width: number) =>
+		vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(width);
+	afterEach(() => vi.restoreAllMocks());
+
+	it("leaves a menu that fits left-aligned with its input", () => {
+		viewport(1200);
+		const el = menuAt(300, 576);
+		el.style.transform = "translateX(-50px)";
+		fitMenuInViewport(el);
+		expect(el.style.transform).toBe("");
+	});
+
+	it("moves a menu that would reach past the right edge just far enough to the left", () => {
+		viewport(1000);
+		const el = menuAt(600, 576);
+		fitMenuInViewport(el);
+		// right edge at 1176, 8px kept free: 184px
+		expect(el.style.transform).toBe("translateX(-184px)");
+	});
+
+	it("never moves a menu past the left edge of the viewport", () => {
+		viewport(400);
+		const el = menuAt(20, 576);
+		fitMenuInViewport(el);
+		expect(el.style.transform).toBe("translateX(-12px)");
+		fitMenuInViewport(null);
+	});
+});
+
 describe("allowedPrefill", () => {
 	it("fills empty fields", () => {
 		expect(allowedPrefill({ port: 3000, scheme: "https" }, { port: "", scheme: undefined }, {})).toEqual({
@@ -705,6 +751,22 @@ describe("labelPrefill", () => {
 			labelDomains: ["blog.example.com", "www.blog.example.com"],
 			ignoredDomains: [],
 		});
+	});
+
+	it("never fills the domains of a container with npm.path: they name the host it is a location of", () => {
+		const api = { ...blog, locationPath: "/api/", existingHostId: 3, existingHostType: "proxy_host" as const };
+		const result = labelPrefill(api, { isNew: true, domainNames: [], touched: untouched });
+		expect(result.domainNames).toBeUndefined();
+		expect(result.existingHost).toBeNull();
+		expect(result.labelDomains).toEqual([]);
+		// what an earlier pick filled in doesn't belong to it either
+		expect(
+			labelPrefill(api, { isNew: true, domainNames: ["blog.example.com"], touched: untouched }, ["blog.example.com"])
+				.domainNames,
+		).toEqual([]);
+		// and it never looks like a conflict with an existing host
+		expect(existingHostOf(api)).toBeNull();
+		expect(existingHostOf({ ...api, locationPath: null })).toEqual({ id: 3, type: "proxy_host" });
 	});
 
 	it("never changes the domains or switches of a host being edited", () => {

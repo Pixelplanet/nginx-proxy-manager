@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
+import { isValid as isValidNginxValue } from "../nginx-values.js";
 import { isValidHost } from "./util.js";
 
 /**
@@ -367,13 +368,52 @@ const splitLabelDomains = (value) => {
  */
 const parseLabelDomains = (value) => splitLabelDomains(value).domains;
 
+// Longest npm.path / npm.forward_path taken from a label (and the most of a refused one that is shown)
+const MAX_LABEL_PATH = 255;
+const MAX_IGNORED_PATH = 100;
+
+/**
+ * Reads the npm.path and npm.forward_path labels: the custom location a container expects to be served under
+ * (a frontend/backend split on one domain, e.g. "/api/"), and the path to send to it ("/" strips the location
+ * prefix, missing = the request path is passed on unchanged). Each is checked with the rule the custom location
+ * fields of the API use (nginx-values.js locationPath and forwardPath). A refused value is left out and reported
+ * (`label=value`, cut to 100 characters), so the UI can say why it is missing. npm.forward_path is only read
+ * together with a usable npm.path: on its own it would not say which location it belongs to.
+ *
+ * @param   {object} l  the container's labels
+ * @returns {{path: string|null, forward_path: string|null, ignored_paths: string[]}}
+ */
+const parseLabelLocation = (l) => {
+	const ignored_paths = [];
+	const read = (label, rule) => {
+		const raw = l[label];
+		if (typeof raw !== "string" || !raw.trim()) {
+			return null;
+		}
+		const value = raw.trim();
+		if (value.length <= MAX_LABEL_PATH && isValidNginxValue(rule, value)) {
+			return value;
+		}
+		ignored_paths.push(`${label}=${value}`.slice(0, MAX_IGNORED_PATH));
+		return null;
+	};
+	const path = read("npm.path", "locationPath");
+	let forward_path = path ? read("npm.forward_path", "forwardPath") : null;
+	// as the location editor stores it: the path part of "host/path" (the API adds a missing "/" as well)
+	if (forward_path && !forward_path.startsWith("/")) {
+		forward_path = `/${forward_path}`;
+	}
+	return { path, forward_path, ignored_paths };
+};
+
 /**
  * Reads the hints from npm.* labels. No other label ever leaves this module.
  * Invalid values are ignored (null / empty).
  *
  * @param   {object} labels
  * @returns {{hide: boolean, port: number|null, scheme: string|null, domains: string[], ignored_domains: string[],
- *            websocket: boolean|null, block_exploits: boolean|null, caching: boolean|null, http2: boolean|null}}
+ *            websocket: boolean|null, block_exploits: boolean|null, caching: boolean|null, http2: boolean|null,
+ *            path: string|null, forward_path: string|null, ignored_paths: string[]}}
  */
 const parseNpmLabels = (labels) => {
 	const l = labels && typeof labels === "object" ? labels : {};
@@ -391,6 +431,7 @@ const parseNpmLabels = (labels) => {
 		block_exploits: labelBool(l["npm.block_exploits"]),
 		caching: labelBool(l["npm.caching"]),
 		http2: labelBool(l["npm.http2"]),
+		...parseLabelLocation(l),
 	};
 };
 
@@ -477,6 +518,11 @@ const containersToCandidates = (containers, { networks, selfId }) => {
 			caching_enabled: hints.caching === true,
 			http2_support: hints.http2 === true,
 			ignored_domains: hints.ignored_domains,
+			// npm.path / npm.forward_path: a custom location of the host serving the npm.domain names, not a
+			// host of its own (see markExistingHosts)
+			location_path: hints.path,
+			location_forward_path: hints.forward_path,
+			ignored_paths: hints.ignored_paths,
 			existing_host_id: null,
 			existing_host_type: null,
 		};
@@ -495,6 +541,7 @@ const containersToCandidates = (containers, { networks, selfId }) => {
 					...suggestion,
 					domain_names: [...suggestion.domain_names],
 					ignored_domains: [...suggestion.ignored_domains],
+					ignored_paths: [...suggestion.ignored_paths],
 					forward_host: service,
 				},
 			});

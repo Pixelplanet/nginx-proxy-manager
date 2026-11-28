@@ -74,12 +74,29 @@ labels:
 - `npm.http2`: "HTTP/2 Support", turned on once you pick a certificate
 - `npm.hide`: never suggest this container (also not in the network scan, as long as Docker
   discovery works)
+- `npm.path`: the custom location the container expects to be served under, for example
+  `/api/` of its frontend's domain (with `npm.domain` set to that domain)
+- `npm.forward_path`: the path sent to the container: `/` strips the location path, left out
+  the request path is passed on unchanged
 
 Switches take `true` or `false`. Docker reads labels when a container is created, so
 recreate the container after changing them, then refresh the suggestions.
 
 The domain names are only filled in when the field is still empty. If another host already
 uses one of them, the container is marked in the list and the domains are left out.
+
+A container with `npm.path` is a custom location of the host for its `npm.domain`, not a host
+of its own: its domains are never filled in and never count as "in use". Picked in a custom
+location it fills in the path (when empty) and the forward path. On a host with one of its
+domains, the Custom Locations tab offers it as a ready-made location to add with one click.
+
+```yaml
+labels:              # the API of app.example.com, served under /api/ without the prefix
+  npm.domain: "app.example.com"
+  npm.path: "/api/"
+  npm.forward_path: "/"
+  npm.port: "3000"
+```
 
 ### Troubleshooting
 

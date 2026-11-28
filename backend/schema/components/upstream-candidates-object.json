@@ -63,6 +63,9 @@
 						"caching_enabled": false,
 						"http2_support": false,
 						"ignored_domains": [],
+						"location_path": null,
+						"location_forward_path": null,
+						"ignored_paths": [],
 						"existing_host_id": null,
 						"existing_host_type": null
 					}
@@ -164,9 +167,9 @@
 					},
 					"suggestion": {
 						"type": "object",
-						"description": "Docker containers and their compose service aliases only: proxy host fields from the container's npm.* labels, filled in when the item is picked as forward host (npm.domain, npm.port, npm.scheme, npm.websocket, npm.block_exploits, npm.caching, npm.http2). domain_names is empty when the container has no valid npm.domain label. existing_host_id/existing_host_type name a host (visible to the user) that already uses one of the domain names: a new proxy host can't use them (the UI doesn't fill them in), the UI offers to open that host instead.",
+						"description": "Docker containers and their compose service aliases only: proxy host fields from the container's npm.* labels, filled in when the item is picked as forward host (npm.domain, npm.port, npm.scheme, npm.websocket, npm.block_exploits, npm.caching, npm.http2, npm.path, npm.forward_path). domain_names is empty when the container has no valid npm.domain label. existing_host_id/existing_host_type name a host (visible to the user) that already uses one of the domain names: a new proxy host can't use them (the UI doesn't fill them in), the UI offers to open that host instead. A container with location_path (npm.path) is a custom location of the host serving its domain names, not a host of its own: its existing_host_id/existing_host_type are always null, and the UI offers it as a ready-made location on hosts with one of those domains.",
 						"additionalProperties": false,
-						"required": ["domain_names", "forward_scheme", "forward_host", "forward_port", "allow_websocket_upgrade", "block_exploits", "caching_enabled", "http2_support", "ignored_domains", "existing_host_id", "existing_host_type"],
+						"required": ["domain_names", "forward_scheme", "forward_host", "forward_port", "allow_websocket_upgrade", "block_exploits", "caching_enabled", "http2_support", "ignored_domains", "location_path", "location_forward_path", "ignored_paths", "existing_host_id", "existing_host_type"],
 						"example": {
 							"domain_names": ["grafana.example.com"],
 							"forward_scheme": "http",
@@ -177,6 +180,9 @@
 							"caching_enabled": false,
 							"http2_support": false,
 							"ignored_domains": [],
+							"location_path": null,
+							"location_forward_path": null,
+							"ignored_paths": [],
 							"existing_host_id": null,
 							"existing_host_type": null
 						},
@@ -233,6 +239,29 @@
 									"type": "string",
 									"maxLength": 100,
 									"example": "*.com"
+								}
+							},
+							"location_path": {
+								"type": ["string", "null"],
+								"description": "npm.path: the custom location path the container expects to be served under (e.g. /api/ of the host serving its npm.domain names), checked like a custom location path. null when the label is missing or refused (see ignored_paths).",
+								"maxLength": 255,
+								"example": "/api/"
+							},
+							"location_forward_path": {
+								"type": ["string", "null"],
+								"description": "npm.forward_path (only with a usable npm.path): the path sent to the container, checked like a custom location forward path and starting with /. \"/\" strips the location prefix; null passes the request path on unchanged.",
+								"maxLength": 256,
+								"example": "/"
+							},
+							"ignored_paths": {
+								"type": "array",
+								"description": "npm.path / npm.forward_path values that were refused, as label=value (cut to 100 characters)",
+								"maxItems": 2,
+								"example": [],
+								"items": {
+									"type": "string",
+									"maxLength": 100,
+									"example": "npm.path=/a b"
 								}
 							},
 							"existing_host_id": {

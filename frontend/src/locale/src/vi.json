@@ -353,6 +353,9 @@
 	"disabled": {
 		"defaultMessage": "Đã tắt"
 	},
+	"docker-labels.add-as-location": {
+		"defaultMessage": "Thêm làm đường dẫn tùy chỉnh thay thế"
+	},
 	"docker-labels.badge": {
 		"defaultMessage": "tên miền đã dùng"
 	},
@@ -365,8 +368,17 @@
 	"docker-labels.ignored-hint": {
 		"defaultMessage": "Trường tên miền sẽ từ chối các tên này (ký tự đại diện chỉ được phép ở đầu dưới dạng *., ví dụ *.example.com)"
 	},
+	"docker-labels.ignored-path": {
+		"defaultMessage": "Không dùng, không phải đường dẫn tùy chỉnh hợp lệ: {values}"
+	},
+	"docker-labels.location-hint": {
+		"defaultMessage": "{host} cần được phục vụ dưới {path} (npm.path), như một đường dẫn tùy chỉnh của host cho các tên miền của nó."
+	},
 	"docker-labels.not-filled": {
 		"defaultMessage": "Các tên miền từ nhãn npm.domain của container ({domains}) chưa được điền."
+	},
+	"docker-labels.path-title": {
+		"defaultMessage": "Cần được phục vụ dưới đường dẫn {path} (npm.path)"
 	},
 	"docker-labels.used-by": {
 		"defaultMessage": "{type, select, redirection_host {Đang được một máy chủ chuyển hướng dùng: hãy thay đổi hoặc xóa nó trước} dead_host {Đang được một máy chủ 404 dùng: hãy thay đổi hoặc xóa nó trước} other {Đang được một máy chủ proxy dùng}}."
@@ -649,6 +661,18 @@
 	},
 	"location.path-label": {
 		"defaultMessage": "Vị trí"
+	},
+	"location.suggestions.add-label": {
+		"defaultMessage": "Thêm {path} → {target}"
+	},
+	"location.suggestions.hint": {
+		"defaultMessage": "Các container có nhãn npm.domain khớp với một tên miền của host này và có đặt npm.path. Không có gì được thêm cho đến khi bạn bấm Thêm."
+	},
+	"location.suggestions.pointer": {
+		"defaultMessage": "{count, plural, other {# đường dẫn tùy chỉnh có sẵn}} từ nhãn Docker cho các tên miền này"
+	},
+	"location.suggestions.title": {
+		"defaultMessage": "Đường dẫn có sẵn từ nhãn Docker"
 	},
 	"location.toggle-enabled": {
 		"defaultMessage": "Bật hoặc tắt vị trí này"

@@ -5,7 +5,9 @@
 // Docker discovery is opt-in. Without it (the default CI stack) the spec checks that no suggestions are
 // returned. With NPM_DOCKER_DISCOVERY=true and a Docker API that lists a container labelled
 // npm.domain=labels-blog.example.com (as in the e2e fixture), it also checks the suggestion the forward host
-// picker fills into a new proxy host, and the existing-host marks it shows.
+// picker fills into a new proxy host, and the existing-host marks it shows. A fixture container that also has
+// npm.path=/api/ and npm.forward_path=/ on that domain checks the custom location suggestion: it is never
+// marked as using the domain, and what it fills in is a valid custom location.
 describe('Docker label suggestions', () => {
 	let token;
 	const fixtureDomain = 'labels-blog.example.com';
@@ -23,7 +25,11 @@ describe('Docker label suggestions', () => {
 	const withSuggestion = (data) => data.items.filter((item) => item.suggestion);
 	// the fixture container's own item (its compose service alias carries the same suggestion)
 	const labelledContainer = (data) => withSuggestion(data).find(
-		(i) => i.kind === 'container' && i.suggestion.domain_names.includes(fixtureDomain)
+		(i) => i.kind === 'container' && i.suggestion.domain_names.includes(fixtureDomain) && !i.suggestion.location_path
+	);
+	// the fixture container that is a custom location of the labelled container's host
+	const pathContainer = (data) => withSuggestion(data).find(
+		(i) => i.kind === 'container' && i.suggestion.domain_names.includes(fixtureDomain) && i.suggestion.location_path
 	);
 
 	const hostBody = (s) => ({
@@ -75,6 +81,17 @@ describe('Docker label suggestions', () => {
 					expect(domain.replace(/^\*\./, '')).to.include('.');
 				}
 				expect(s.ignored_domains).to.be.an('array');
+				expect(s.ignored_paths).to.be.an('array');
+				if (s.location_path === null) {
+					expect(s.location_forward_path).to.equal(null);
+				} else {
+					expect(s.location_path).to.be.a('string');
+					// a container with npm.path is a location of the host with its domains, never a conflict
+					expect(s.existing_host_id).to.equal(null);
+				}
+				if (s.location_forward_path !== null) {
+					expect(s.location_forward_path).to.match(/^\//);
+				}
 				expect(s.existing_host_type).to.be.oneOf([null, 'proxy_host', 'redirection_host', 'dead_host']);
 			}
 			if (data.providers.docker.status !== 'ok') {
@@ -220,6 +237,61 @@ describe('Docker label suggestions', () => {
 					path:  `/api/nginx/proxy-hosts/${host.id}`,
 				});
 			});
+		});
+	});
+
+	it('Should offer an npm.path container as a custom location, never as a domain conflict', () => {
+		getCandidates().then((data) => {
+			const main = labelledContainer(data);
+			const api = pathContainer(data);
+			if (data.providers.docker.status !== 'ok' || !main || !api) {
+				cy.log('Docker discovery with the npm.path fixture is not running, skipping');
+				return;
+			}
+			// The fixture's labels: npm.domain labels-blog.example.com, npm.path /api/, npm.forward_path /, npm.port 8080
+			const s = api.suggestion;
+			expect(s.location_path).to.equal('/api/');
+			expect(s.location_forward_path).to.equal('/');
+			expect(s.forward_port).to.equal(8080);
+			expect(s.ignored_paths).to.deep.equal([]);
+
+			// The frontend's host with the location the picker fills in from the labels
+			const body = hostBody(main.suggestion);
+			body.locations = [{
+				path:           s.location_path,
+				forward_scheme: s.forward_scheme,
+				forward_host:   `${s.forward_host}${s.location_forward_path || ''}`,
+				forward_port:   s.forward_port,
+			}];
+			cy.task('backendApiPost', {
+				token: token,
+				path:  '/api/nginx/proxy-hosts',
+				data:  body,
+			}).then((host) => {
+				cy.validateSwaggerSchema('post', 201, '/nginx/proxy-hosts', host);
+				expect(host.locations).to.have.length(1);
+				expect(host.locations[0].path).to.equal('/api/');
+
+				getCandidates().then((after) => {
+					// the frontend's container has a host now, the API container is where it belongs
+					expect(withSuggestion(after).find((i) => i.host === main.host).suggestion.existing_host_id).to.equal(host.id);
+					const again = withSuggestion(after).find((i) => i.host === api.host);
+					expect(again.suggestion.existing_host_id).to.equal(null);
+					expect(again.suggestion.existing_host_type).to.equal(null);
+				});
+
+				cy.task('backendApiDelete', {
+					token: token,
+					path:  `/api/nginx/proxy-hosts/${host.id}`,
+				});
+			});
+
+			// a refused npm.path is left out and reported
+			const broken = withSuggestion(data).find((i) => i.suggestion.ignored_paths.length);
+			if (broken) {
+				expect(broken.suggestion.location_path).to.equal(null);
+				expect(broken.suggestion.ignored_paths[0]).to.match(/^npm\.(forward_)?path=/);
+			}
 		});
 	});
 });

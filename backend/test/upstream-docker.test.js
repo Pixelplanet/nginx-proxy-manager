@@ -198,6 +198,9 @@ describe("docker: DOCKER_HOST parsing and allowlist", () => {
 			block_exploits: null,
 			caching: null,
 			http2: null,
+			path: null,
+			forward_path: null,
+			ignored_paths: [],
 		};
 		assert.deepEqual(parseNpmLabels({ "npm.port": "8080", "npm.scheme": "HTTPS", "npm.hide": "no" }), {
 			hide: false,
@@ -234,6 +237,9 @@ describe("docker: DOCKER_HOST parsing and allowlist", () => {
 				block_exploits: true,
 				caching: false,
 				http2: null,
+				path: null,
+				forward_path: null,
+				ignored_paths: [],
 			},
 		);
 		assert.equal(parseNpmLabels({ "npm.port": "80abc" }).port, null);
@@ -281,6 +287,44 @@ describe("docker: DOCKER_HOST parsing and allowlist", () => {
 		assert.equal(splitLabelDomains(`${"x".repeat(300)}!`).ignored[0].length, 100);
 		assert.deepEqual(parseNpmLabels({ "npm.domain": "*.com" }).ignored_domains, ["*.com"]);
 		assert.deepEqual(parseNpmLabels({ "npm.domain": "*.com" }).domains, []);
+	});
+
+	it("reads npm.path and npm.forward_path with the custom location rules", () => {
+		const loc = (labels) => {
+			const { path, forward_path, ignored_paths } = parseNpmLabels(labels);
+			return { path, forward_path, ignored_paths };
+		};
+		assert.deepEqual(loc({ "npm.path": " /api/ ", "npm.forward_path": "/" }), {
+			path: "/api/",
+			forward_path: "/",
+			ignored_paths: [],
+		});
+		// no forward path: the request path is passed on unchanged
+		assert.deepEqual(loc({ "npm.path": "/api/" }), { path: "/api/", forward_path: null, ignored_paths: [] });
+		assert.deepEqual(loc({ "npm.path": "/api/", "npm.forward_path": "  " }).forward_path, null);
+		// stored like the path part of "host/path"
+		assert.equal(loc({ "npm.path": "/v1/", "npm.forward_path": "api/v1/" }).forward_path, "/api/v1/");
+		// modifiers and quoted paths, as a custom location accepts them
+		assert.equal(loc({ "npm.path": "^~ /static/" }).path, "^~ /static/");
+		assert.equal(loc({ "npm.path": "~* \\.(png|jpg)$" }).path, "~* \\.(png|jpg)$");
+		assert.equal(loc({ "npm.path": '"/with space/"' }).path, '"/with space/"');
+		// anything the location path field refuses is left out and reported
+		for (const bad of ["/a b", "/api;", "/x{", "=", "~", "/a#b", "/a'b", `/${"a".repeat(300)}`]) {
+			const got = loc({ "npm.path": bad, "npm.forward_path": "/" });
+			assert.equal(got.path, null, bad);
+			// the forward path belongs to the refused location
+			assert.equal(got.forward_path, null, bad);
+			assert.deepEqual(got.ignored_paths, [`npm.path=${bad}`.slice(0, 100)], bad);
+		}
+		for (const bad of ["/a b", "/x;", "/{y}", "/a\\b", '/"q"']) {
+			const got = loc({ "npm.path": "/api/", "npm.forward_path": bad });
+			assert.equal(got.path, "/api/", bad);
+			assert.equal(got.forward_path, null, bad);
+			assert.deepEqual(got.ignored_paths, [`npm.forward_path=${bad}`], bad);
+		}
+		// a forward path on its own says nothing: ignored without a report
+		assert.deepEqual(loc({ "npm.forward_path": "/" }), { path: null, forward_path: null, ignored_paths: [] });
+		assert.deepEqual(loc({ "npm.path": 42 }), { path: null, forward_path: null, ignored_paths: [] });
 	});
 });
 
@@ -385,6 +429,9 @@ describe("docker: candidate parsing from fixture JSON", () => {
 			caching_enabled: false,
 			http2_support: false,
 			ignored_domains: [],
+			location_path: null,
+			location_forward_path: null,
+			ignored_paths: [],
 			existing_host_id: null,
 			existing_host_type: null,
 		});
@@ -425,10 +472,51 @@ describe("docker: candidate parsing from fixture JSON", () => {
 			caching_enabled: true,
 			http2_support: true,
 			ignored_domains: ["*.com"],
+			location_path: null,
+			location_forward_path: null,
+			ignored_paths: [],
 			existing_host_id: null,
 			existing_host_type: null,
 		});
 		assert.equal(labelled.state, "exited");
+	});
+
+	it("suggests the custom location of an npm.path container, on the container and its compose service alias", () => {
+		const items = containersToCandidates(
+			[
+				{
+					Id: "e".repeat(64),
+					Names: ["/shop-api-1"],
+					Labels: {
+						"npm.domain": "shop.example.com",
+						"npm.path": "/api/",
+						"npm.forward_path": "/",
+						"npm.port": "8080",
+						"com.docker.compose.service": "api",
+					},
+					State: "running",
+					Ports: [{ PrivatePort: 8080, Type: "tcp" }],
+					NetworkSettings: { Networks: { npm_default: { IPAddress: "172.18.0.10" } } },
+				},
+				{
+					Id: "d".repeat(64),
+					Names: ["/broken"],
+					Labels: { "npm.path": "/a b", "npm.forward_path": "/" },
+					Ports: [],
+					NetworkSettings: { Networks: { npm_default: { IPAddress: "172.18.0.11" } } },
+				},
+			],
+			{ networks: ["npm_default"] },
+		);
+		const [container, alias, broken] = items;
+		assert.equal(container.suggestion.location_path, "/api/");
+		assert.equal(container.suggestion.location_forward_path, "/");
+		assert.deepEqual(container.suggestion.domain_names, ["shop.example.com"]);
+		assert.deepEqual(alias.suggestion, { ...container.suggestion, forward_host: "api" });
+		assert.notEqual(alias.suggestion.ignored_paths, container.suggestion.ignored_paths);
+		assert.equal(broken.suggestion.location_path, null);
+		assert.equal(broken.suggestion.location_forward_path, null);
+		assert.deepEqual(broken.suggestion.ignored_paths, ["npm.path=/a b"]);
 	});
 
 	it("drops legacy link names and invalid hosts", () => {

@@ -353,6 +353,9 @@
 	"disabled": {
 		"defaultMessage": "Deaktiviert"
 	},
+	"docker-labels.add-as-location": {
+		"defaultMessage": "Stattdessen als benutzerdefinierten Pfad hinzufügen"
+	},
 	"docker-labels.badge": {
 		"defaultMessage": "Domain belegt"
 	},
@@ -365,8 +368,17 @@
 	"docker-labels.ignored-hint": {
 		"defaultMessage": "Das Feld für Domainnamen würde diese Namen ablehnen (Wildcards nur als führendes *. wie *.example.com)"
 	},
+	"docker-labels.ignored-path": {
+		"defaultMessage": "Nicht verwendet, kein gültiger Pfad für einen benutzerdefinierten Pfad: {values}"
+	},
+	"docker-labels.location-hint": {
+		"defaultMessage": "{host} erwartet, unter {path} bereitgestellt zu werden (npm.path), als benutzerdefinierter Pfad des Hosts für seine Domains."
+	},
 	"docker-labels.not-filled": {
 		"defaultMessage": "Die Domainnamen aus dem npm.domain-Label des Containers ({domains}) wurden nicht eingetragen."
+	},
+	"docker-labels.path-title": {
+		"defaultMessage": "Erwartet, unter {path} bereitgestellt zu werden (npm.path)"
 	},
 	"docker-labels.used-by": {
 		"defaultMessage": "{type, select, redirection_host {Von einem Weiterleitungs-Host verwendet: zuerst ändern oder entfernen} dead_host {Von einem 404-Host verwendet: zuerst ändern oder entfernen} other {Von einem Proxy-Host verwendet}}."
@@ -646,6 +658,18 @@
 	},
 	"location.path-label": {
 		"defaultMessage": "Location"
+	},
+	"location.suggestions.add-label": {
+		"defaultMessage": "{path} → {target} hinzufügen"
+	},
+	"location.suggestions.hint": {
+		"defaultMessage": "Container, deren npm.domain-Label zu einem Domainnamen dieses Hosts passt und die npm.path setzen. Hinzugefügt wird erst mit Klick auf Hinzufügen."
+	},
+	"location.suggestions.pointer": {
+		"defaultMessage": "{count, plural, =1 {# fertiger Pfad} other {# fertige Pfade}} aus Docker-Labels für diese Domains"
+	},
+	"location.suggestions.title": {
+		"defaultMessage": "Fertige Pfade aus Docker-Labels"
 	},
 	"location.toggle-enabled": {
 		"defaultMessage": "Diese Location aktivieren oder deaktivieren"

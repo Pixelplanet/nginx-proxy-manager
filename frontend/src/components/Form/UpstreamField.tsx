@@ -7,6 +7,7 @@ import {
 	useCallback,
 	useContext,
 	useEffect,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -18,6 +19,7 @@ import {
 	type GroupBase,
 	type InputProps,
 	type MenuListProps,
+	type MenuProps,
 	type OptionProps,
 	type SingleValue,
 } from "react-select";
@@ -65,7 +67,12 @@ export const candidatePrefill = (c: UpstreamCandidate, currentHost?: string | nu
 	}
 	if (c.hintScheme === "http" || c.hintScheme === "https") {
 		prefill.scheme = c.hintScheme;
-	} else if (prefill.port !== undefined && c.source === "docker" && c.host !== `${currentHost ?? ""}`.trim()) {
+	} else if (
+		prefill.port !== undefined &&
+		c.source === "docker" &&
+		// a location's "host/path": only the host part names the target
+		c.host !== `${currentHost ?? ""}`.trim().split("/")[0]
+	) {
 		// A container port without a scheme hint (no npm.scheme label) serves http unless it is 443/8443: picking
 		// it must not keep the https of the target it replaces. Only together with the port: a container with
 		// several ports and no hint leaves both fields alone (editing https:443 must not become http:443).
@@ -171,9 +178,17 @@ export interface ExistingHost {
 	type: ExistingHostType;
 }
 
+/**
+ * A container with an npm.path label: a custom location of the host serving its npm.domain names (e.g. an API
+ * under /api/ of its frontend's domain), not a host of its own. Its domains are never filled into a proxy host's
+ * domain names and never make it, or another container, look like it conflicts with an existing host: the host
+ * with those domains is where it belongs. It is offered as a ready-made location on that host instead.
+ */
+export const isLocationContainer = (s: UpstreamSuggestion | undefined): boolean => !!s?.locationPath;
+
 /** A host that already serves one of the label's domains, other than the one being edited */
 export const existingHostOf = (s: UpstreamSuggestion | undefined, hostId?: number | null): ExistingHost | null => {
-	if (!s?.existingHostId) return null;
+	if (!s?.existingHostId || isLocationContainer(s)) return null;
 	const type = s.existingHostType || "proxy_host";
 	if (type === "proxy_host" && hostId && s.existingHostId === hostId) return null;
 	return { id: s.existingHostId, type };
@@ -224,7 +239,8 @@ export const labelPrefill = (
 	const none: LabelPrefill = { toggles: {}, existingHost: null, labelDomains: [], ignoredDomains: [] };
 	if (!form.isNew) return none;
 	const existingHost = existingHostOf(s);
-	const labelDomains = s?.domainNames || [];
+	// a location container's domains name the host it belongs to, not this one (see isLocationContainer)
+	const labelDomains = isLocationContainer(s) ? [] : s?.domainNames || [];
 	const current = domainList(form.domainNames);
 	const fromEarlierPick = current.length > 0 && previousDomains.length > 0 && sameDomains(current, previousDomains);
 	const result: LabelPrefill = {
@@ -365,6 +381,28 @@ function OptionIgnored({ s }: { s: UpstreamSuggestion }) {
 	);
 }
 
+/** The npm.path of a container: where it expects to be served, as a custom location */
+export function LocationPathBadge({ path }: { path: string }) {
+	return (
+		<span
+			className="badge bg-azure-lt ms-2 text-nowrap font-monospace"
+			title={intl.formatMessage({ id: "docker-labels.path-title" }, { path })}
+			data-testid="option-path"
+		>
+			{path}
+		</span>
+	);
+}
+
+/** npm.path / npm.forward_path values that were refused: why a container has no location path */
+function IgnoredPaths({ values }: { values: string[] }) {
+	return (
+		<div className="text-warning small ps-3 text-break" data-testid="option-ignored-paths">
+			<T id="docker-labels.ignored-path" data={{ values: formatValueList(values) }} />
+		</div>
+	);
+}
+
 function ExistingHostBadge({ s }: { s: UpstreamSuggestion }) {
 	const info = useContext(LabelInfoContext);
 	const existing = info ? existingHostOf(s, info.hostId) : null;
@@ -422,6 +460,7 @@ const Option = (props: OptionProps<UpstreamOption, false, GroupBase<UpstreamOpti
 						{containerStateText(c.state)}
 					</span>
 				) : null}
+				{c.suggestion?.locationPath ? <LocationPathBadge path={c.suggestion.locationPath} /> : null}
 				{c.suggestion ? <ExistingHostBadge s={c.suggestion} /> : null}
 			</div>
 			{kind ? (
@@ -432,6 +471,7 @@ const Option = (props: OptionProps<UpstreamOption, false, GroupBase<UpstreamOpti
 			{c.suggestion ? <OptionLabels s={c.suggestion} /> : null}
 			{extra.length ? <div className="text-secondary small ps-3">{extra.join(" · ")}</div> : null}
 			{c.suggestion ? <OptionIgnored s={c.suggestion} /> : null}
+			{c.suggestion?.ignoredPaths?.length ? <IgnoredPaths values={c.suggestion.ignoredPaths} /> : null}
 		</components.Option>
 	);
 };
@@ -492,6 +532,46 @@ export function DockerLabelsHelp() {
 		</button>
 	);
 }
+
+// The suggestion menu is at least this wide, also under a narrow input (a location card's forward host), so the
+// container details fit on fewer lines. Never wider than the viewport.
+export const MENU_MIN_WIDTH = "min(36rem, 90vw)";
+// Space kept free between a shifted menu and the edge of the viewport
+const MENU_EDGE = 8;
+
+/**
+ * Keeps a menu wider than its input on screen: it stays left-aligned with the input, and only when that would
+ * reach past the right edge of the viewport is it moved left, as far as needed and never past the left edge.
+ */
+export const fitMenuInViewport = (el: HTMLElement | null) => {
+	if (!el) return;
+	el.style.transform = "";
+	const rect = el.getBoundingClientRect();
+	const viewport = document.documentElement.clientWidth || window.innerWidth;
+	const overflow = rect.right - (viewport - MENU_EDGE);
+	if (overflow > 0) {
+		const shift = Math.min(overflow, Math.max(0, rect.left - MENU_EDGE));
+		if (shift > 0) el.style.transform = `translateX(-${shift}px)`;
+	}
+};
+
+const Menu = (props: MenuProps<UpstreamOption, false, GroupBase<UpstreamOption>>) => {
+	const node = useRef<HTMLDivElement | null>(null);
+	const { innerRef } = props;
+	const setRef = useCallback(
+		(el: HTMLDivElement | null) => {
+			node.current = el;
+			// a callback or a ref object, depending on the react-select version
+			const ref = innerRef as unknown;
+			if (typeof ref === "function") ref(el);
+			else if (ref && typeof ref === "object") (ref as { current: HTMLDivElement | null }).current = el;
+		},
+		[innerRef],
+	);
+	// every render: the options (and so the width) change while typing
+	useLayoutEffect(() => fitMenuInViewport(node.current));
+	return <components.Menu {...props} innerRef={setRef} />;
+};
 
 // Menu with a footer: a hint how to enable Docker discovery (or that free text
 // works), and a button to refresh the suggestions.
@@ -726,7 +806,7 @@ export function UpstreamField({
 								isClearable
 								isLoading={!candidates && query.isFetching}
 								placeholder={placeholder}
-								components={{ Option, MenuList, Input }}
+								components={{ Menu, Option, MenuList, Input }}
 								menuIsOpen={menuIsOpen}
 								onMenuOpen={() => {
 									setWanted(true);
@@ -770,6 +850,8 @@ export function UpstreamField({
 								loadingMessage={() => intl.formatMessage({ id: "loading" })}
 								styles={{
 									option: (base) => ({ ...base, height: "100%" }),
+									// left-aligned with the input, at least MENU_MIN_WIDTH wide (see fitMenuInViewport)
+									menu: (base) => ({ ...base, minWidth: MENU_MIN_WIDTH }),
 									control: (base) =>
 										isInvalid
 											? { ...base, borderColor: "var(--tblr-form-invalid-border-color)" }

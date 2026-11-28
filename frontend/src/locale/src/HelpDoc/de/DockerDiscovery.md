@@ -77,12 +77,30 @@ labels:
 - `npm.http2`: „HTTP/2 Support“, eingeschaltet sobald du ein Zertifikat wählst
 - `npm.hide`: diesen Container nie vorschlagen (auch nicht im Netzwerk-Scan, solange die
   Docker-Erkennung funktioniert)
+- `npm.path`: der benutzerdefinierte Pfad, unter dem der Container bereitgestellt werden will,
+  zum Beispiel `/api/` der Domain seines Frontends (mit `npm.domain` auf diese Domain)
+- `npm.forward_path`: der Pfad, der an den Container geht: `/` entfernt den Pfad der Location,
+  ohne das Label geht der Anfragepfad unverändert weiter
 
 Schalter nehmen `true` oder `false`. Docker liest Labels beim Erstellen eines Containers,
 also den Container nach einer Änderung neu erstellen und dann die Vorschläge aktualisieren.
 
 Die Domainnamen werden nur eingetragen, wenn das Feld noch leer ist. Verwendet schon ein
 anderer Host eine davon, ist der Container in der Liste markiert und die Domains bleiben weg.
+
+Ein Container mit `npm.path` ist ein benutzerdefinierter Pfad des Hosts für seine
+`npm.domain`, kein eigener Host: Seine Domains werden nie eingetragen und gelten nie als
+„belegt“. In einem benutzerdefinierten Pfad gewählt, trägt er den Pfad (wenn leer) und den
+Ziel-Pfad ein. Bei einem Host mit einer seiner Domains bietet der Reiter „Benutzerdefinierte
+Pfade“ ihn als fertigen Pfad an, der sich mit einem Klick hinzufügen lässt.
+
+```yaml
+labels:              # die API von app.example.com unter /api/, ohne das Präfix
+  npm.domain: "app.example.com"
+  npm.path: "/api/"
+  npm.forward_path: "/"
+  npm.port: "3000"
+```
 
 ### Fehlersuche
 

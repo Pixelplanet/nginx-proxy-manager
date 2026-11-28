@@ -353,6 +353,9 @@
 	"disabled": {
 		"defaultMessage": "Desativado"
 	},
+	"docker-labels.add-as-location": {
+		"defaultMessage": "Adicionar como location personalizada"
+	},
 	"docker-labels.badge": {
 		"defaultMessage": "domínio em uso"
 	},
@@ -365,8 +368,17 @@
 	"docker-labels.ignored-hint": {
 		"defaultMessage": "O campo de nomes de domínio recusaria estes nomes (curingas só são permitidos como *. inicial, como *.example.com)"
 	},
+	"docker-labels.ignored-path": {
+		"defaultMessage": "Não usado, não é um caminho de location válido: {values}"
+	},
+	"docker-labels.location-hint": {
+		"defaultMessage": "{host} espera ser servido em {path} (npm.path), como location personalizada do host dos seus domínios."
+	},
 	"docker-labels.not-filled": {
 		"defaultMessage": "Os nomes de domínio do label npm.domain do contêiner ({domains}) não foram preenchidos."
+	},
+	"docker-labels.path-title": {
+		"defaultMessage": "Espera ser servido em {path} (npm.path)"
 	},
 	"docker-labels.used-by": {
 		"defaultMessage": "{type, select, redirection_host {Usado por um host de redirecionamento: altere-o ou remova-o primeiro} dead_host {Usado por um host 404: altere-o ou remova-o primeiro} other {Usado por um proxy host}}."
@@ -649,6 +661,18 @@
 	},
 	"location.path-label": {
 		"defaultMessage": "Location"
+	},
+	"location.suggestions.add-label": {
+		"defaultMessage": "Adicionar {path} → {target}"
+	},
+	"location.suggestions.hint": {
+		"defaultMessage": "Containers cujo label npm.domain corresponde a um dos domínios deste host e que definem npm.path. Nada é adicionado até você clicar em Adicionar."
+	},
+	"location.suggestions.pointer": {
+		"defaultMessage": "{count, plural, =1 {# location personalizada pronta} other {# locations personalizadas prontas}} a partir de labels do Docker para estes domínios"
+	},
+	"location.suggestions.title": {
+		"defaultMessage": "Locations prontas a partir de labels do Docker"
 	},
 	"location.toggle-enabled": {
 		"defaultMessage": "Ativar ou desativar este location"

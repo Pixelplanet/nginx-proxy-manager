@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Form, Formik } from "formik";
+import { useState } from "react";
 import type { NginxLocationStatus, ProxyLocation, UpstreamCheckResult } from "src/api/backend";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -474,5 +475,155 @@ describe("LocationsFields and the form value", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Add Location" }));
 		expect(formValues().map((l) => l.path)).toEqual(["/a"]);
 		expect(path).toHaveValue("/a");
+	});
+});
+
+// Sends add requests to LocationsFields the way the proxy host modal does
+function AddRequestHarness({ location }: { location: ProxyLocation }) {
+	const [request, setRequest] = useState<{ seq: number; location: ProxyLocation } | null>(null);
+	return (
+		<Formik initialValues={{ domainNames: [], locations: [loc({ path: "/a" })] }} onSubmit={vi.fn()}>
+			{({ values }) => (
+				<Form>
+					<LocationsFields initialValues={[loc({ path: "/a" })]} addRequest={request} />
+					<output data-testid="values">{JSON.stringify(values.locations)}</output>
+					<button type="button" onClick={() => setRequest((r) => ({ seq: (r?.seq ?? 0) + 1, location }))}>
+						request
+					</button>
+					<button type="button" onClick={() => setRequest((r) => (r ? { ...r } : r))}>
+						same
+					</button>
+				</Form>
+			)}
+		</Formik>
+	);
+}
+
+describe("LocationsFields and containers with npm.path", () => {
+	afterEach(cleanup);
+	beforeEach(() => {
+		checkState.calls = [];
+		checkState.candidates = {
+			providers: {},
+			items: [
+				{
+					host: "shop-api",
+					kind: "container",
+					owner: null,
+					source: "docker",
+					ports: [8080],
+					hintPort: 8080,
+					hintScheme: null,
+					state: "running",
+					suggestion: {
+						domainNames: ["shop.example.com"],
+						forwardScheme: "http",
+						forwardHost: "shop-api",
+						forwardPort: 8080,
+						ignoredDomains: [],
+						locationPath: "/api/",
+						locationForwardPath: "/",
+						ignoredPaths: [],
+						existingHostId: null,
+						existingHostType: null,
+					},
+				},
+				{ host: "plain", kind: "container", owner: null, source: "docker", ports: [3000], hintPort: 3000, hintScheme: null },
+			],
+			generatedAt: "2026-11-28T10:00:00Z",
+		};
+	});
+
+	const renderHost = (
+		initial: ProxyLocation[],
+		props: { suggestLocations?: boolean; addRequest?: { seq: number; location: ProxyLocation } | null } = {},
+	) => {
+		const utils = render(
+			<Formik initialValues={{ domainNames: ["shop.example.com"], locations: initial }} onSubmit={vi.fn()}>
+				{({ values }) => (
+					<Form>
+						<LocationsFields initialValues={initial} {...props} />
+						<output data-testid="values">{JSON.stringify(values.locations)}</output>
+					</Form>
+				)}
+			</Formik>,
+		);
+		const formValues = () => JSON.parse(screen.getByTestId("values").textContent || "[]") as ProxyLocation[];
+		return { ...utils, formValues };
+	};
+
+	const pick = (name: string) => {
+		const host = document.querySelector("[id^=location-forwardHost-]") as HTMLInputElement;
+		fireEvent.focus(host);
+		fireEvent.keyDown(host, { key: "ArrowDown", code: "ArrowDown" });
+		fireEvent.click(screen.getByText(name, { selector: ".react-select__option strong" }));
+	};
+
+	it("fills an empty location from the picked container's npm.path and npm.forward_path", () => {
+		const { formValues } = renderHost([]);
+		fireEvent.click(screen.getByRole("button", { name: "Add Location" }));
+		pick("shop-api");
+		expect(formValues()[0]).toMatchObject({ path: "/api/", forwardHost: "shop-api/", forwardPort: 8080 });
+		expect(screen.getByPlaceholderText("/path")).toHaveValue("/api/");
+		// another container without npm.path takes back what the pick filled in
+		pick("plain");
+		expect(formValues()[0]).toMatchObject({ path: "", forwardHost: "plain", forwardPort: 3000 });
+	});
+
+	it("keeps a path the user typed", () => {
+		const { formValues } = renderHost([]);
+		fireEvent.click(screen.getByRole("button", { name: "Add Location" }));
+		fireEvent.change(screen.getByPlaceholderText("/path"), { target: { value: "/backend/" } });
+		pick("shop-api");
+		expect(formValues()[0]).toMatchObject({ path: "/backend/", forwardHost: "shop-api/", forwardPort: 8080 });
+	});
+
+	it("shows the path of a container in its option", () => {
+		renderHost([loc({ path: "/a", forwardHost: "" })]);
+		fireEvent.click(screen.getByText("/a"));
+		const host = document.querySelector("[id^=location-forwardHost-]") as HTMLInputElement;
+		fireEvent.focus(host);
+		fireEvent.keyDown(host, { key: "ArrowDown", code: "ArrowDown" });
+		expect(screen.getByTestId("option-path")).toHaveTextContent("/api/");
+	});
+
+	it("offers ready-made locations only where asked, and adds one on click", () => {
+		const first = renderHost([]);
+		expect(screen.queryByTestId("location-suggestions")).toBeNull();
+		first.unmount();
+
+		const { formValues } = renderHost([], { suggestLocations: true });
+		const item = screen.getByTestId("location-suggestion");
+		expect(item).toHaveTextContent("/api/ → http://shop-api:8080/");
+		expect(formValues()).toEqual([]);
+		fireEvent.click(screen.getByRole("button", { name: "Add /api/ → http://shop-api:8080/" }));
+		expect(formValues()).toEqual([expect.objectContaining({ path: "/api/", forwardHost: "shop-api/", forwardPort: 8080 })]);
+		// open, and no longer offered
+		expect(screen.getByPlaceholderText("/path")).toHaveValue("/api/");
+		expect(screen.queryByTestId("location-suggestions")).toBeNull();
+	});
+
+	it("adds a location requested from outside once per request", () => {
+		const location = { ...loc({ path: "/api/", forwardHost: "shop-api/" }), forwardPort: 8080 };
+		render(<AddRequestHarness location={location} />);
+		const paths = () => (JSON.parse(screen.getByTestId("values").textContent || "[]") as ProxyLocation[]).map((l) => l.path);
+		expect(paths()).toEqual(["/a"]);
+		fireEvent.click(screen.getByRole("button", { name: "request" }));
+		expect(paths()).toEqual(["/a", "/api/"]);
+		// opened to be seen
+		expect(screen.getByPlaceholderText("/path")).toHaveValue("/api/");
+		// the same request again (a re-render) adds nothing
+		fireEvent.click(screen.getByRole("button", { name: "same" }));
+		expect(paths()).toEqual(["/a", "/api/"]);
+		fireEvent.click(screen.getByRole("button", { name: "request" }));
+		expect(paths()).toEqual(["/a", "/api/", "/api/"]);
+	});
+});
+
+describe("LocationsFields card header", () => {
+	afterEach(cleanup);
+	it("shows the path of a host/path forward host after the port", () => {
+		renderFields([loc({ path: "/api/", forwardHost: "donations/", forwardPort: 3000 })]);
+		expect(screen.getByTestId("location-card-0")).toHaveTextContent("http://donations:3000/");
 	});
 });

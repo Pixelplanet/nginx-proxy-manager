@@ -79,6 +79,8 @@ host field of a proxy host, they fill in the rest of the form:
 | `npm.caching` | `npm.caching=true` | Turns on "Cache Assets" |
 | `npm.http2` | `npm.http2=true` | Turns on "HTTP/2 Support" as soon as you pick a certificate in the form (HTTP/2 needs one, so it stays off without) |
 | `npm.hide` | `npm.hide=true` | Never suggest this container, also not through DNS discovery (see below) |
+| `npm.path` | `npm.path=/api/` | The custom location path the container expects to be served under, on the host for its `npm.domain` (see [Frontend and API on one domain](#frontend-and-api-on-one-domain)) |
+| `npm.forward_path` | `npm.forward_path=/` | With `npm.path`: the path sent to the container. `/` strips the location path (`/api/users` arrives as `/users`); left out, the request path is passed on unchanged |
 
 `npm.hide` needs Docker discovery: DNS discovery can't read labels, so it leaves out the names and
 addresses Docker discovery reports as hidden. With DNS discovery alone, or while Docker discovery
@@ -138,6 +140,57 @@ already in use".
 
 NPM never creates or changes hosts by itself because of labels; they are only read to fill in the
 form, and nothing is saved until you save.
+
+#### Frontend and API on one domain
+
+Often one domain is served by two containers: a frontend for `/` and an API under a path such as
+`/api/`. The frontend gets the usual labels; the API says with `npm.path` which custom location of that
+host it is, and with `npm.forward_path` whether the prefix is stripped:
+
+```yaml
+services:
+  web:                       # the proxy host shop.example.com -> web:80
+    image: example/shop-web
+    networks: [npm_default]
+    labels:
+      npm.domain: "shop.example.com"
+      npm.port: "80"
+  api:                       # its custom location /api/ -> api:3000, /api/orders arrives as /orders
+    image: example/shop-api
+    networks: [npm_default]
+    labels:
+      npm.domain: "shop.example.com"
+      npm.path: "/api/"
+      npm.forward_path: "/"
+      npm.port: "3000"
+
+networks:
+  npm_default:
+    external: true
+```
+
+Leave out `npm.forward_path` for an API that expects the full path (`/api/orders` arrives as
+`/api/orders`).
+
+`npm.path` and `npm.forward_path` are checked like the custom location fields: a value they would refuse
+(for example with a space or `;`) is left out, and the dropdown shows it under the container.
+`npm.forward_path` without a valid `npm.path` is ignored.
+
+A container with `npm.path` is a custom location of the host serving its `npm.domain`, never a host of its
+own:
+
+- Its domain names are never filled into a proxy host's domain names, and it is never marked **domain in
+  use**: the host with that domain is where it belongs, not a conflict. It doesn't make the frontend
+  container look taken either.
+- Picked in a custom location, it fills in the location path (when empty, or still holding what an earlier
+  pick filled in) and, with `npm.forward_path`, the path part of the forward host (`api/`), unless you typed
+  a path there yourself. Port and scheme follow the usual rules.
+- Picked as a proxy host's forward host, the pick goes through, but a hint says it expects to be served under
+  its path and offers to add it as a custom location instead.
+- On a proxy host whose domain names include its `npm.domain`, the **Custom Locations** tab offers it as a
+  ready-made location ("/api/ → http://api:3000/") with an **Add** button, and the Details tab points
+  there. Nothing is added by itself, and paths the host already has are not offered. A container and its
+  Compose service name are offered once, under the service name.
 
 #### Labels on existing containers
 
@@ -386,7 +439,7 @@ doesn't grant new access. The rate limits keep it from being used as a fast port
 
 | Endpoint | Description |
 |---|---|
-| `GET /api/upstreams/candidates?refresh=true` | Suggestions with the status of each source; `refresh=true` bypasses the 30 second cache. Docker containers carry a `suggestion` built from their labels (what picking the container fills in), with `existing_host_id`/`existing_host_type` set when a host you can see already uses one of its domains |
+| `GET /api/upstreams/candidates?refresh=true` | Suggestions with the status of each source; `refresh=true` bypasses the 30 second cache. Docker containers carry a `suggestion` built from their labels (what picking the container fills in), with `existing_host_id`/`existing_host_type` set when a host you can see already uses one of its domains (never for a container with `npm.path`, whose `location_path`/`location_forward_path` describe a custom location of that host) |
 | `POST /api/upstreams/check` | Check up to 20 targets: `{"targets": [{"host": "app", "port": 8080, "scheme": "http"}]}` |
 | `GET /api/upstreams/health` | Latest health monitor results per proxy host and stream |
 

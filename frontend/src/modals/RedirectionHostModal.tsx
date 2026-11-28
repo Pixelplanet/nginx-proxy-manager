@@ -18,7 +18,7 @@ import {
 	SSLOptionsFields,
 	TestConfigButton,
 } from "src/components";
-import { FormModal } from "src/components/Form";
+import { FormModal, HOST_MODAL_SIZE } from "src/components/Form";
 import { useHostConfigTest, useRedirectionHost, useSetRedirectionHost, useUser } from "src/hooks";
 import { T } from "src/locale";
 import { validateString } from "src/modules/Validations";
@@ -105,7 +105,7 @@ const RedirectionHostModal = EasyModal.create(({ id, visible, remove }: Props) =
 	return (
 		<>
 			{(isLoading || userIsLoading || ((error || userError) && (!data || !currentUser))) && (
-				<Modal show={visible} onHide={remove}>
+				<Modal show={visible} onHide={remove} size={HOST_MODAL_SIZE}>
 					{!isLoading && (error || userError) && (
 						<Alert variant="danger" className="m-3">
 							{error?.message || userError?.message || "Unknown error"}
@@ -116,6 +116,7 @@ const RedirectionHostModal = EasyModal.create(({ id, visible, remove }: Props) =
 			)}
 			{!isLoading && !userIsLoading && data && currentUser && (
 				<FormModal
+					size={HOST_MODAL_SIZE}
 					show={visible}
 					onHide={remove}
 					preventHide={isSubmitting}
@@ -210,7 +211,7 @@ const RedirectionHostModal = EasyModal.create(({ id, visible, remove }: Props) =
 											<div className="tab-pane active show" id="tab-details" role="tabpanel">
 												<DomainNamesField isWildcardPermitted dnsProviderWildcardSupported />
 												<div className="row">
-													<div className="col-md-4">
+													<div className="col-md-4 col-lg-3">
 														<Field name="forwardScheme">
 															{({ field, form }: any) => (
 																<div className="mb-3">
@@ -244,7 +245,7 @@ const RedirectionHostModal = EasyModal.create(({ id, visible, remove }: Props) =
 															)}
 														</Field>
 													</div>
-													<div className="col-md-8">
+													<div className="col-md-8 col-lg-9">
 														<Field
 															name="forwardDomainName"
 															validate={validateString(1, 255)}

@@ -87,6 +87,23 @@ const saveWithWarning = async () => {
 	return warning;
 };
 
+describe("StreamModal size", () => {
+	it("opens as a wide dialog like the other host dialogs", async () => {
+		render(
+			<QueryClientProvider client={new QueryClient()}>
+				<LocaleProvider>
+					<EasyModal.Provider />
+				</LocaleProvider>
+			</QueryClientProvider>,
+		);
+		await act(async () => {
+			showStreamModal(1);
+		});
+		await screen.findByLabelText("Incoming Port");
+		expect(document.querySelector(".modal-dialog")).toHaveClass("modal-lg");
+	});
+});
+
 describe("StreamModal save with warnings", () => {
 	it("closes without an unsaved-changes prompt after the save went through", async () => {
 		const warning = await saveWithWarning();
