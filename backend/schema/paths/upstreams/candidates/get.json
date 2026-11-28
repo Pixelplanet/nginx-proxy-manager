@@ -104,6 +104,38 @@
 											"caching_enabled": false,
 											"http2_support": false,
 											"ignored_domains": [],
+											"location_path": null,
+											"location_forward_path": null,
+											"ignored_paths": [],
+											"existing_host_id": null,
+											"existing_host_type": null
+										}
+									},
+									{
+										"host": "grafana-api",
+										"kind": "container",
+										"owner": null,
+										"source": "docker",
+										"ports": [8080],
+										"hint_port": 8080,
+										"hint_scheme": "http",
+										"network": "npm_default",
+										"state": "running",
+										"ip": "172.18.0.6",
+										"used_by": 0,
+										"suggestion": {
+											"domain_names": ["grafana.example.com"],
+											"forward_scheme": "http",
+											"forward_host": "grafana-api",
+											"forward_port": 8080,
+											"allow_websocket_upgrade": false,
+											"block_exploits": false,
+											"caching_enabled": false,
+											"http2_support": false,
+											"ignored_domains": [],
+											"location_path": "/api/",
+											"location_forward_path": "/",
+											"ignored_paths": [],
 											"existing_host_id": null,
 											"existing_host_type": null
 										}

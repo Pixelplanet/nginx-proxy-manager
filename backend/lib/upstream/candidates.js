@@ -180,6 +180,10 @@ const HOST_TYPES = [
  * (`existing_host_id` + `existing_host_type`). A proxy host wins over a redirection host, which wins over a
  * 404 host. The input items (shared by the discovery cache) are not changed.
  *
+ * A container with an npm.path label is never marked: its npm.domain names say which host it is a custom
+ * location of (e.g. the API under /api/ of the frontend's domain), so a host with those domains is where it
+ * belongs, not a conflict.
+ *
  * @param   {Array<object>} items
  * @param   {object}        [hosts]  non-deleted rows the user can see (id, domain_names) per host type
  * @param   {Array<object>} [hosts.proxyHosts]
@@ -206,7 +210,7 @@ const markExistingHosts = (items, hosts = {}) => {
 			return item;
 		}
 		let match = null;
-		for (const d of item.suggestion.domain_names || []) {
+		for (const d of item.suggestion.location_path ? [] : item.suggestion.domain_names || []) {
 			const m = byDomain.get(d.toLowerCase());
 			if (m && (!match || rank(m) < rank(match))) {
 				match = m;
@@ -218,6 +222,9 @@ const markExistingHosts = (items, hosts = {}) => {
 				...item.suggestion,
 				domain_names: [...(item.suggestion.domain_names || [])],
 				ignored_domains: [...(item.suggestion.ignored_domains || [])],
+				...(Array.isArray(item.suggestion.ignored_paths)
+					? { ignored_paths: [...item.suggestion.ignored_paths] }
+					: {}),
 				existing_host_id: match ? match.id : null,
 				existing_host_type: match ? match.type : null,
 			},

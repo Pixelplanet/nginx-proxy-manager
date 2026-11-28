@@ -162,6 +162,9 @@ describe("candidates: label suggestions", () => {
 		caching_enabled: false,
 		http2_support: false,
 		ignored_domains: [],
+		location_path: null,
+		location_forward_path: null,
+		ignored_paths: [],
 		existing_host_id: null,
 		existing_host_type: null,
 	});
@@ -225,5 +228,33 @@ describe("candidates: label suggestions", () => {
 			["proxy_host", 1],
 			[null, null],
 		]);
+	});
+
+	it("never marks a container with npm.path: the host with its domains is the one it is a location of", () => {
+		const api = {
+			...suggestion(["shop.example.com"]),
+			location_path: "/api/",
+			ignored_paths: ["npm.forward_path=a b"],
+		};
+		const items = [
+			item("shop-web", "docker", { suggestion: suggestion(["shop.example.com"]) }),
+			item("shop-api", "docker", { suggestion: api }),
+		];
+		const out = markExistingHosts(items, {
+			proxyHosts: [{ id: 5, domain_names: ["shop.example.com"] }],
+			redirectionHosts: [{ id: 6, domain_names: ["shop.example.com"] }],
+		});
+		assert.deepEqual(
+			out.map((i) => [i.suggestion.existing_host_type, i.suggestion.existing_host_id]),
+			[
+				["proxy_host", 5],
+				[null, null],
+			],
+		);
+		assert.deepEqual(out[1].suggestion.domain_names, ["shop.example.com"]);
+		assert.equal(out[1].suggestion.location_path, "/api/");
+		// copied, not shared with the discovery cache
+		assert.deepEqual(out[1].suggestion.ignored_paths, api.ignored_paths);
+		assert.notEqual(out[1].suggestion.ignored_paths, api.ignored_paths);
 	});
 });
