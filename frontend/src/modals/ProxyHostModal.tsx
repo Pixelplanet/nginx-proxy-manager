@@ -5,10 +5,11 @@ import { Field, Form, useFormikContext } from "formik";
 import { type KeyboardEvent, type MouseEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { Alert } from "react-bootstrap";
 import Modal from "react-bootstrap/Modal";
-import type { HostMeta, ProxyHost, UpstreamCandidate } from "src/api/backend";
+import type { HostMeta, ProxyHost, ProxyLocation, UpstreamCandidate } from "src/api/backend";
 import {
 	AccessField,
 	Button,
+	candidatePrefill,
 	cleanLocations,
 	DockerLabelsHelp,
 	DomainNamesField,
@@ -16,10 +17,14 @@ import {
 	ForwardHostCheckHint,
 	HasPermission,
 	HostConfigTestResult,
+	isLocationContainer,
 	type LabelPrefill,
 	LabelPrefillHint,
 	Loading,
+	LocationContainerHint,
+	LocationSuggestionsPointer,
 	LocationsFields,
+	locationFromCandidate,
 	NginxConfigField,
 	NginxErrorMessage,
 	SaveWarning,
@@ -110,7 +115,13 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 	// Switches the user changed: a picked container's labels leave them alone
 	const touchedToggles = useRef(new Set<string>());
 	// What the last picked container's labels filled in (or why not), for the hint under the domain names
-	const [labelPick, setLabelPick] = useState<{ host: string; prefill: LabelPrefill } | null>(null);
+	const [labelPick, setLabelPick] = useState<{
+		host: string;
+		prefill: LabelPrefill;
+		candidate: UpstreamCandidate;
+	} | null>(null);
+	// A location to add on the Custom Locations tab (a picked container with npm.path, added as a location instead)
+	const [locationAdd, setLocationAdd] = useState<{ seq: number; location: ProxyLocation } | null>(null);
 	// A picked container's npm.http2 label, applied once a certificate is picked
 	const [http2Wish, setHttp2Wish] = useState(false);
 	const configTest = useHostConfigTest("proxy-hosts");
@@ -223,7 +234,41 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 				form.setFieldValue("http2Support", wish);
 			}
 		}
-		setLabelPick(candidate.suggestion ? { host: candidate.host, prefill: labels } : null);
+		setLabelPick(candidate.suggestion ? { host: candidate.host, prefill: labels, candidate } : null);
+	};
+
+	// A container with npm.path picked as the forward host: add it as a custom location instead, and undo what
+	// the pick filled into the forward host fields (only while they still hold it)
+	const addAsLocation = (form: any, candidate: UpstreamCandidate) => {
+		setLocationAdd((prev) => ({ seq: (prev?.seq ?? 0) + 1, location: locationFromCandidate(candidate) }));
+		const picked = candidatePrefill(candidate);
+		if (form.values.forwardHost === candidate.host) {
+			form.setFieldValue("forwardHost", form.initialValues.forwardHost || "");
+		}
+		if (picked.port && `${form.values.forwardPort}` === `${picked.port}`) {
+			form.setFieldValue("forwardPort", form.initialValues.forwardPort ?? "");
+		}
+		if (picked.scheme && form.values.forwardScheme === picked.scheme) {
+			form.setFieldValue("forwardScheme", form.initialValues.forwardScheme || "http");
+		}
+		// the switches its labels turned on, as for a pick without labels
+		const isNew = id === "new" && !savedId;
+		const labels = fillFromLabels(undefined, {
+			isNew,
+			domainNames: form.values.domainNames,
+			touched: touchedToggles.current,
+		});
+		if (labels.domainNames) {
+			form.setFieldValue("domainNames", labels.domainNames);
+		}
+		for (const [key, value] of Object.entries(labels.toggles)) {
+			if (form.values[key] !== value) {
+				form.setFieldValue(key, value);
+			}
+		}
+		if (isNew) setHttp2Wish(false);
+		setLabelPick(null);
+		setActiveTab("locations");
 	};
 
 	// What a save sends, also what "Test" checks
@@ -427,6 +472,7 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 													}
 													onOpen={(existing) => openExisting(form, existing)}
 												/>
+												<LocationSuggestionsPointer onShow={() => setActiveTab("locations")} />
 												<div className="row">
 													<div className="col-sm-3 col-md-3 col-lg-2">
 														<Field name="forwardScheme">
@@ -537,6 +583,14 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 														</Field>
 													</div>
 												</div>
+												{labelPick &&
+												labelPick.host === form.values.forwardHost &&
+												isLocationContainer(labelPick.candidate.suggestion) ? (
+													<LocationContainerHint
+														candidate={labelPick.candidate}
+														onAdd={() => addAsLocation(form, labelPick.candidate)}
+													/>
+												) : null}
 												<AccessField />
 												<div className="my-3">
 													<h4 className="py-2">
@@ -643,6 +697,8 @@ const ProxyHostModal = EasyModal.create(({ id, visible, remove }: Props) => {
 													highlightIndex={highlightIndex}
 													allowAdvanced={!!isAdmin}
 													readOnly={isSubmitting}
+													suggestLocations
+													addRequest={locationAdd}
 												/>
 											</div>
 											<div className={tabPane("ssl")} id="tab-ssl" role="tabpanel" aria-labelledby="tab-link-ssl">

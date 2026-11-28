@@ -19,6 +19,13 @@ import { isVariableHost, locationDuplicateKey, locationHostPart, normaliseLocati
 import { LocationStatusBadge, LocationStatusDetail, UpstreamCheckBadge, VariableHostBadge } from "../StatusBadges";
 import { AccessField } from "./AccessField";
 import styles from "./LocationsFields.module.css";
+import {
+	type LocationPicked,
+	LocationSuggestionsPanel,
+	locationPickFill,
+	suggestionTarget,
+	useLocationSuggestions,
+} from "./LocationSuggestions";
 import { UpstreamField, usePrefillGuard } from "./UpstreamField";
 
 // Below this many locations the list is short enough to scan by eye, and the
@@ -142,12 +149,8 @@ interface Row {
 	value: ProxyLocation;
 }
 
-const forwardSummary = (item: ProxyLocation) => {
-	if (!item.forwardHost) {
-		return "";
-	}
-	return `${item.forwardScheme}://${item.forwardHost}${item.forwardPort ? `:${item.forwardPort}` : ""}`;
-};
+// "http://api:3000/v1/": the path part of a "host/path" forward host goes after the port, where nginx sends it
+const forwardSummary = (item: ProxyLocation) => (item.forwardHost ? suggestionTarget(item) : "");
 
 interface Props {
 	initialValues: ProxyLocation[];
@@ -160,6 +163,10 @@ interface Props {
 	allowAdvanced?: boolean;
 	// No edits while a save is in flight: the modal resets the form to the submitted values afterwards
 	readOnly?: boolean;
+	// Offer the ready-made locations of discovered containers (npm.path) for the form's domain names
+	suggestLocations?: boolean;
+	// A location to add from outside (a container picked as the host's forward host); added once per `seq`
+	addRequest?: { seq: number; location: ProxyLocation } | null;
 }
 export function LocationsFields({
 	initialValues,
@@ -168,6 +175,8 @@ export function LocationsFields({
 	highlightIndex,
 	allowAdvanced = true,
 	readOnly = false,
+	suggestLocations = false,
+	addRequest = null,
 }: Props) {
 	const [rows, setRows] = useState<Row[]>(() => (initialValues || []).map((value, id) => ({ id, value })));
 	const { setFieldValue, submitCount } = useFormikContext();
@@ -272,16 +281,29 @@ export function LocationsFields({
 		setFieldValue(name, values);
 	};
 
-	const handleAdd = () => {
+	const handleAdd = (value: ProxyLocation = blankItem) => {
 		if (readOnly) return;
 		const id = nextId.current++;
-		updateRows([...latestRows.current, { id, value: blankItem }]);
-		// A new location starts empty, so open it and make sure an active filter
-		// doesn't hide the row that was just added.
-		setExpanded([...expanded, id]);
+		updateRows([...latestRows.current, { id, value }]);
+		// A new location starts empty (or comes from a container's labels), so open it and make sure an active
+		// filter doesn't hide the row that was just added.
+		setExpanded((prev) => [...prev, id]);
 		setFilter("");
 		scrollToId.current = id;
 	};
+
+	const suggestions = useLocationSuggestions(suggestLocations);
+	const suggestionsPanel = (
+		<LocationSuggestionsPanel suggestions={suggestions} onAdd={(l) => handleAdd(l)} disabled={readOnly} />
+	);
+
+	const lastAddSeq = useRef(addRequest?.seq ?? null);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: once per request, not on every edit
+	useEffect(() => {
+		if (!addRequest || addRequest.seq === lastAddSeq.current) return;
+		lastAddSeq.current = addRequest.seq;
+		handleAdd(addRequest.location);
+	}, [addRequest]);
 
 	const handleRemove = (id: number) => {
 		if (readOnly) return;
@@ -313,17 +335,21 @@ export function LocationsFields({
 
 	if (rows.length === 0) {
 		return (
-			<div className="text-center">
-				<button type="button" className="btn my-3" onClick={handleAdd} disabled={readOnly}>
-					<T id="action.add-location" />
-				</button>
-			</div>
+			<>
+				{suggestionsPanel}
+				<div className="text-center">
+					<button type="button" className="btn my-3" onClick={() => handleAdd()} disabled={readOnly}>
+						<T id="action.add-location" />
+					</button>
+				</div>
+			</>
 		);
 	}
 
 	return (
 		// A disabled fieldset disables every input, select, textarea and button in it
 		<fieldset disabled={readOnly} aria-busy={readOnly || undefined} className="m-0 p-0 border-0">
+			{suggestionsPanel}
 			<div className="d-flex align-items-center mb-3">
 				{rows.length >= FILTER_THRESHOLD && (
 					<div className={cn("input-group", styles.filter)}>
@@ -352,7 +378,7 @@ export function LocationsFields({
 						) : null}
 					</div>
 				)}
-				<button type="button" className="btn ms-auto" onClick={handleAdd}>
+				<button type="button" className="btn ms-auto" onClick={() => handleAdd()}>
 					<IconPlus size={16} className="me-1" />
 					<T id="action.add-location" />
 				</button>
@@ -448,8 +474,10 @@ function LocationCard({
 	const isEnabled = item.enabled !== false;
 	// Port and scheme as they were when the row was loaded or added; a picked
 	// candidate only replaces them while the user hasn't changed them.
-	const [initial] = useState(() => ({ port: item.forwardPort, scheme: item.forwardScheme }));
+	const [initial] = useState(() => ({ port: item.forwardPort, scheme: item.forwardScheme, path: item.path }));
 	const guardPrefill = usePrefillGuard();
+	// The path and forward path an earlier pick filled in (npm.path / npm.forward_path), which a later pick may replace
+	const pickedPaths = useRef<LocationPicked>({});
 	const bodyId = `location-body-${row.id}`;
 
 	// Check reachability once the card has been opened, and keep showing the
@@ -629,7 +657,15 @@ function LocationCard({
 									isInvalid={!!hostError}
 									onChange={(forwardHost) => onChanges({ forwardHost })}
 									onBlur={() => onTouched("forwardHost")}
-									onSelectCandidate={(picked) => {
+									onSelectCandidate={(picked, candidate) => {
+										// `item` is still the card before the pick: the host field holds the old value
+										const { changes: fill, picked: paths } = locationPickFill(
+											candidate,
+											item,
+											initial,
+											pickedPaths.current,
+										);
+										pickedPaths.current = paths;
 										const prefill = guardPrefill(
 											picked,
 											{ port: item.forwardPort, scheme: item.forwardScheme },
@@ -641,6 +677,8 @@ function LocationCard({
 											changes.forwardPort = (prefill.port ?? "") as unknown as number;
 										}
 										if (prefill.scheme) changes.forwardScheme = prefill.scheme;
+										if (fill.path !== undefined) changes.path = fill.path;
+										if (fill.forwardHost !== undefined) changes.forwardHost = fill.forwardHost;
 										if (Object.keys(changes).length) onChanges(changes);
 									}}
 								/>

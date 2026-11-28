@@ -681,3 +681,114 @@ describe("ProxyHostModal picking a labelled container", () => {
 		});
 	});
 });
+
+// npm.path containers: an API under /api/ of the frontend's domain
+const apiContainer = (host: string, domain: string, extra: Record<string, unknown> = {}) => ({
+	...container(host, {
+		domain_names: [domain],
+		forward_port: 8080,
+		location_path: "/api/",
+		location_forward_path: "/",
+		ignored_paths: [],
+		...extra,
+	}),
+	ports: [8080],
+	hint_port: 8080,
+});
+
+const locationCards = () => Array.from(document.querySelectorAll("[data-testid^=location-card-]"));
+
+describe("ProxyHostModal and containers with npm.path", () => {
+	it("doesn't fill a location container's domains into a new host, and offers to add it as a location", async () => {
+		candidateItems = [apiContainer("shop-api", "shop.example.com")];
+		await open("new");
+		await pick("shop-api");
+
+		// the pick itself goes through, the domains are the frontend host's, not this one's
+		expect(document.getElementById("forwardHost")).toHaveValue("shop-api");
+		expect(domainChips()).toEqual([]);
+		const hint = screen.getByTestId("location-container-hint");
+		expect(hint).toHaveTextContent("shop-api expects to be served under /api/ (npm.path)");
+
+		fireEvent.click(within(hint).getByTestId("add-as-location"));
+
+		expect(selected()).toHaveAttribute("aria-controls", "tab-locations");
+		expect(locationCards()).toHaveLength(1);
+		expect(document.querySelector("#tab-locations input[placeholder='/path']")).toHaveValue("/api/");
+		// what the pick filled into the forward host is undone
+		expect(document.getElementById("forwardHost")).toHaveValue("");
+		expect(document.getElementById("forwardPort")).toHaveValue(null);
+		expect(screen.queryByTestId("location-container-hint")).toBeNull();
+	});
+
+	it("never marks a location container as using a domain, even when told so", async () => {
+		candidateItems = [
+			apiContainer("shop-api", "a.example.com", { existing_host_id: 1, existing_host_type: "proxy_host" }),
+		];
+		currentHost = { ...host, id: 2 } as typeof host;
+		await open(1);
+		const input = document.getElementById("forwardHost") as HTMLInputElement;
+		fireEvent.focus(input);
+		fireEvent.keyDown(input, { key: "ArrowDown", code: "ArrowDown" });
+		const option = (await screen.findByText("shop-api", { selector: ".react-select__option strong" })).closest(
+			".react-select__option",
+		) as HTMLElement;
+		expect(within(option).getByTestId("option-path")).toHaveTextContent("/api/");
+		expect(within(option).queryByTestId("existing-host-badge")).toBeNull();
+	});
+
+	it("suggests ready-made locations for the host's domains and adds one only on request", async () => {
+		candidateItems = [
+			apiContainer("shop-api-1", "a.example.com"),
+			// its compose service alias: one suggestion per container, under the alias
+			{ ...apiContainer("api", "a.example.com"), kind: "compose_service", owner: "shop-api-1" },
+			// another domain, and a container without npm.path
+			apiContainer("other-api", "b.example.com"),
+			container("web", { domain_names: ["a.example.com"] }),
+		];
+		await open(1);
+
+		const pointer = await screen.findByTestId("location-suggestions-pointer");
+		expect(pointer).toHaveTextContent("1 ready-made custom location from Docker labels for these domains");
+		fireEvent.click(within(pointer).getByRole("button"));
+		expect(selected()).toHaveAttribute("aria-controls", "tab-locations");
+
+		const panel = screen.getByTestId("location-suggestions");
+		const items = within(panel).getAllByTestId("location-suggestion");
+		expect(items).toHaveLength(1);
+		expect(items[0]).toHaveTextContent("/api/ → http://api:8080/");
+		// nothing is added by itself
+		expect(locationCards()).toHaveLength(0);
+
+		fireEvent.click(within(items[0]).getByRole("button", { name: "Add /api/ → http://api:8080/" }));
+
+		expect(locationCards()).toHaveLength(1);
+		// its path is taken now: no longer suggested, the pointer goes too
+		expect(screen.queryByTestId("location-suggestions")).toBeNull();
+		expect(screen.queryByTestId("location-suggestions-pointer")).toBeNull();
+
+		const body = await save(() => putBodies);
+		expect(body.locations).toEqual([
+			expect.objectContaining({ path: "/api/", forward_host: "api/", forward_port: 8080, forward_scheme: "http" }),
+		]);
+	});
+
+	it("doesn't suggest a location whose path the host already has", async () => {
+		currentHost = {
+			...host,
+			locations: [{ path: "^~ /api/", forward_scheme: "http", forward_host: "old", forward_port: 80 }],
+		} as unknown as typeof host;
+		candidateItems = [apiContainer("shop-api", "A.Example.com")];
+		await open(1);
+		await waitFor(() =>
+			expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/api/upstreams/candidates"))).toBe(
+				true,
+			),
+		);
+		await act(async () => {
+			await new Promise((r) => setTimeout(r, 50));
+		});
+		expect(screen.queryByTestId("location-suggestions")).toBeNull();
+		expect(screen.queryByTestId("location-suggestions-pointer")).toBeNull();
+	});
+});

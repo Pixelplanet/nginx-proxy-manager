@@ -353,6 +353,9 @@
 	"disabled": {
 		"defaultMessage": "Väljas"
 	},
+	"docker-labels.add-as-location": {
+		"defaultMessage": "Lisa hoopis kohandatud asukohana"
+	},
 	"docker-labels.badge": {
 		"defaultMessage": "domeen kasutusel"
 	},
@@ -365,8 +368,17 @@
 	"docker-labels.ignored-hint": {
 		"defaultMessage": "Domeeninimede väli lükkaks need nimed tagasi (metamärk on lubatud ainult alguses, nt *.example.com)"
 	},
+	"docker-labels.ignored-path": {
+		"defaultMessage": "Ei kasutata, pole kehtiv kohandatud asukoha tee: {values}"
+	},
+	"docker-labels.location-hint": {
+		"defaultMessage": "{host} eeldab, et seda serveeritakse aadressil {path} (npm.path), oma domeenide hosti kohandatud asukohana."
+	},
 	"docker-labels.not-filled": {
 		"defaultMessage": "Konteineri npm.domain sildi domeeninimesid ({domains}) ei täidetud."
+	},
+	"docker-labels.path-title": {
+		"defaultMessage": "Eeldab, et seda serveeritakse aadressil {path} (npm.path)"
 	},
 	"docker-labels.used-by": {
 		"defaultMessage": "{type, select, redirection_host {Kasutusel ümbersuunamise hostis: muuda või eemalda see enne} dead_host {Kasutusel 404 hostis: muuda või eemalda see enne} other {Kasutusel proxy-hostis}}."
@@ -649,6 +661,18 @@
 	},
 	"location.path-label": {
 		"defaultMessage": "Asukoht"
+	},
+	"location.suggestions.add-label": {
+		"defaultMessage": "Lisa {path} → {target}"
+	},
+	"location.suggestions.hint": {
+		"defaultMessage": "Konteinerid, mille npm.domain silt vastab selle hosti mõnele domeeninimele ja mis määravad npm.path. Midagi ei lisata enne, kui klõpsad Lisa."
+	},
+	"location.suggestions.pointer": {
+		"defaultMessage": "{count, plural, =1 {# valmis kohandatud asukoht} other {# valmis kohandatud asukohta}} Dockeri siltidest nende domeenide jaoks"
+	},
+	"location.suggestions.title": {
+		"defaultMessage": "Valmis asukohad Dockeri siltidest"
 	},
 	"location.toggle-enabled": {
 		"defaultMessage": "Lülita see asukoht sisse või välja"

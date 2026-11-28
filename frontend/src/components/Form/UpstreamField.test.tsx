@@ -753,6 +753,22 @@ describe("labelPrefill", () => {
 		});
 	});
 
+	it("never fills the domains of a container with npm.path: they name the host it is a location of", () => {
+		const api = { ...blog, locationPath: "/api/", existingHostId: 3, existingHostType: "proxy_host" as const };
+		const result = labelPrefill(api, { isNew: true, domainNames: [], touched: untouched });
+		expect(result.domainNames).toBeUndefined();
+		expect(result.existingHost).toBeNull();
+		expect(result.labelDomains).toEqual([]);
+		// what an earlier pick filled in doesn't belong to it either
+		expect(
+			labelPrefill(api, { isNew: true, domainNames: ["blog.example.com"], touched: untouched }, ["blog.example.com"])
+				.domainNames,
+		).toEqual([]);
+		// and it never looks like a conflict with an existing host
+		expect(existingHostOf(api)).toBeNull();
+		expect(existingHostOf({ ...api, locationPath: null })).toEqual({ id: 3, type: "proxy_host" });
+	});
+
 	it("never changes the domains or switches of a host being edited", () => {
 		const result = labelPrefill(blog, { isNew: false, domainNames: [], touched: untouched });
 		expect(result.domainNames).toBeUndefined();

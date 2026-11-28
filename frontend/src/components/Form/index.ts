@@ -5,6 +5,7 @@ export * from "./DNSProviderFields";
 export * from "./DomainNamesField";
 export * from "./FormModal";
 export * from "./ForwardHostCheckHint";
+export * from "./LocationSuggestions";
 export * from "./LocationsFields";
 export * from "./NginxConfigField";
 export * from "./SSLCertificateField";

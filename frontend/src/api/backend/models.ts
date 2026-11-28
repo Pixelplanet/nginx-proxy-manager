@@ -345,8 +345,16 @@ export interface UpstreamSuggestion {
 	http2Support: boolean;
 	// npm.domain entries the domain names field would refuse (dropped from domainNames)
 	ignoredDomains: string[];
+	// npm.path: the custom location the container expects to be served under. Such a container is a location of
+	// the host serving domainNames, not a host of its own: never filled into the domain names, never "in use".
+	locationPath?: string | null;
+	// npm.forward_path: the path sent to it, the path part of the location's "host/path" ("/" strips the location
+	// prefix); null passes the request path on unchanged
+	locationForwardPath?: string | null;
+	// npm.path / npm.forward_path values that were refused, as "label=value"
+	ignoredPaths?: string[];
 	// a host (visible to the user) already serving one of the domains: the forward host picker marks the
-	// container and doesn't fill the domains in
+	// container and doesn't fill the domains in. Always null for a container with locationPath.
 	existingHostId: number | null;
 	existingHostType: "proxy_host" | "redirection_host" | "dead_host" | null;
 }

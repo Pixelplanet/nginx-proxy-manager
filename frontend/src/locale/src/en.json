@@ -353,6 +353,9 @@
 	"disabled": {
 		"defaultMessage": "Disabled"
 	},
+	"docker-labels.add-as-location": {
+		"defaultMessage": "Add as custom location instead"
+	},
 	"docker-labels.badge": {
 		"defaultMessage": "domain in use"
 	},
@@ -365,8 +368,17 @@
 	"docker-labels.ignored-hint": {
 		"defaultMessage": "The domain names field would refuse these names (wildcards are allowed only as a leading *. like *.example.com)"
 	},
+	"docker-labels.ignored-path": {
+		"defaultMessage": "Not used, not a valid custom location path: {values}"
+	},
+	"docker-labels.location-hint": {
+		"defaultMessage": "{host} expects to be served under {path} (npm.path), as a custom location of the host for its domains."
+	},
 	"docker-labels.not-filled": {
 		"defaultMessage": "The domain names from the container's npm.domain label ({domains}) were not filled in."
+	},
+	"docker-labels.path-title": {
+		"defaultMessage": "Expects to be served under {path} (npm.path)"
 	},
 	"docker-labels.used-by": {
 		"defaultMessage": "{type, select, redirection_host {Used by a redirection host: change or remove it first} dead_host {Used by a 404 host: change or remove it first} other {Used by a proxy host}}."
@@ -649,6 +661,18 @@
 	},
 	"location.path-label": {
 		"defaultMessage": "Location"
+	},
+	"location.suggestions.add-label": {
+		"defaultMessage": "Add {path} → {target}"
+	},
+	"location.suggestions.hint": {
+		"defaultMessage": "Containers whose npm.domain label matches one of this host's domain names and that set npm.path. Nothing is added until you click Add."
+	},
+	"location.suggestions.pointer": {
+		"defaultMessage": "{count, plural, =1 {# ready-made custom location} other {# ready-made custom locations}} from Docker labels for these domains"
+	},
+	"location.suggestions.title": {
+		"defaultMessage": "Ready-made locations from Docker labels"
 	},
 	"location.toggle-enabled": {
 		"defaultMessage": "Enable or disable this location"
